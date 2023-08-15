@@ -21,7 +21,7 @@ jobs:
       id-token: write
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/${{ env.PACKAGE_NAME }}
+      url: https://test.pypi.org/p/$PACKAGE_NAME
 
     steps:
       - uses: actions/download-artifact@v3
