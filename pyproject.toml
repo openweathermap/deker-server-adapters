@@ -1,0 +1,309 @@
+                                ###############
+                                ### PROJECT ###
+                                ###############
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.poetry]
+name = "deker_server_adapters"
+version = "0.0.0"
+description = "Plugin with server adapters for Deker"
+authors = ["OpenWeather <info@openweathermap.org>"]
+license = "GPL-3.0-only"
+readme = "README.md"
+packages = [{include = "deker_server_adapters"}]
+documentation = 'https://docs.deker.io/'
+homepage = 'https://deker.io/'
+repository = 'https://github.com/openweathermap/deker-server-adapters'
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: Unix",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+[tool.poetry-dynamic-versioning]
+vcs = "git"
+style = "semver"
+metadata = false
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
+
+                                ####################
+                                ### DEPENDENCIES ###
+                                ####################
+
+[tool.poetry.dependencies]
+python = "^3.9"
+httpx = {extras = ["http2"], version = "^0.24.1"}
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.7.0"
+coverage = "^7.3.0"
+darglint = "^1.8.1"
+ruff = "^0.0.284"
+isort = "^5.12.0"
+mypy = "^1.5.0"
+mypy-extensions = "^1.0.0"
+pep8-naming = "^0.13.3"
+pre-commit = "^3.3.3"
+ssort = "^0.11.6"
+pycln = "^2.2.2"
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+pytest-sugar = "^0.9.7"
+pytest-mock = "^3.11.1"
+pytest-httpx = "^0.23.1"
+flake8-pyproject = "^1.2.3"
+pytest-random-order = "1.1.0"
+#deker = "1.1.0"
+deker = {version = "1.1.0b-3", source = 'testpypi'}
+
+[tool.poetry.group.docs.dependencies]
+docutils = "0.17"
+m2r2 = "0.3.2"
+sphinx-rtd-theme = "1.2.2"
+enum_tools = "0.10.0"
+sphinx_toolbox = "3.5.0"
+doc8 = "0.11.2"
+
+                                    #############
+                                    ### TOOLS ###
+                                    #############
+
+        ##############
+        # FORMATTERS #
+        ##############
+
+# https://black.readthedocs.io/en/stable/
+[tool.black]
+line-length = 120
+target-version = ['py38', 'py39']
+include = '\.pyi?$'
+
+
+# https://pycqa.github.io/isort/
+[tool.isort]
+py_version = 39
+sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
+known_local_folder = ['deker_server_adapters', ]
+profile = 'black'
+atomic = true
+include_trailing_comma = true
+line_length = 120
+lines_after_imports = 2
+lines_between_types = 1
+multi_line_output = 3
+extend_skip = ['.md', '.json']
+
+        ###########
+        # LINTERS #
+        ###########
+
+# https://mypy.readthedocs.io/en/stable/
+# https://pypi.org/project/mypy-extensions/
+[tool.mypy]
+python_version = '3.8'
+ignore_missing_imports = true
+scripts_are_modules = true
+allow_redefinition = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_no_return = false
+show_error_context = true
+show_column_numbers = true
+show_error_codes = true
+
+color_output = false
+pretty = true
+exclude = [
+    '^setup\.py$',
+    '^tmp\.py$',
+    '^venv/',
+    '^test+\.py$',
+    '^conftest\.py$',
+    '^tests/'
+]
+
+[[tool.mypy.overrides]]
+module = "tests/*"
+disallow_untyped_defs = false
+
+[tool.flake8]  # code linter
+# https://flake8.pycqa.org/en/latest/
+# https://pypi.org/project/flake8-bugbear
+# https://pypi.org/project/flake8-docstrings/
+# https://pypi.org/project/flake8-import-order/
+# https://pypi.org/project/flake8-pytest-style/
+# https://pypi.org/project/pep8-naming/
+min_python_version = 3.9
+max-complexity = 15
+max-doc-length = 120
+max-line-length = 120
+strictness = "full"
+docstring_style = "sphinx"
+docstring-convention = "pep257"
+application_import_names = "deker_server_adapters"
+import-order-style = "pycharm"
+exclude = [
+    "venv/*",
+    ".venv/*",
+    ".git/*",
+    "__pycache__/*",
+    ".mypy_cache/*",
+    ".pytest_cache/*",
+    ".idea/*",
+    "examples/*",
+    "tmp/*",
+    "tests/*",
+    "tmp.py"
+]
+
+extend-select = ["D417"]
+ignore = [
+    "B012",
+    "B019",
+    "D100",
+    "D104",
+    "D105",
+    "D106",
+    "D107",
+    "D203",
+    "D401",
+    "D403",
+    "D404",
+    "DAR002",
+    "DAR003",
+    "DAR104",
+    "DAR105",
+    "DAR201",
+    "DAR301",
+    "DAR401",
+    "DAR501",
+    "I101",
+    "I201",
+    "I202",
+    "N807",
+    "N813",
+    "W503",
+    "W504",
+]
+
+[tool.pycln]  # imports linter
+# https://hadialqattan.github.io/pycln/#/README
+all = true
+diff = true
+exclude = "venv/*,.venv/*,.git/*,__pycache__/*,examples/*"
+
+[tool.doc8]  # RST linter
+# https://github.com/PyCQA/doc8
+max-line-length = 99
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+select = ["ALL"]
+ignore = [
+    "A003",
+    "A002",
+    "ANN101",
+    "ANN204",
+    "ANN401",
+    "ARG002",
+    "B904",
+    "BLE001",
+    "D100",
+    "D105",
+    "D107",
+    "FA100",
+    "ISC001",
+    "N818",
+    "PGH004",
+    "PLR0913",
+    "SLF001",
+    "TRY200",
+    "TRY301",
+    "UP006",
+    "UP035",
+    "COM812"
+]
+
+[tool.ruff.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.mccabe]
+max-complexity = 3
+
+[tool.ruff.pycodestyle]
+max-doc-length = 120
+
+[tool.ruff.isort]
+section-order = ['future', 'standard-library', 'third-party', 'first-party', 'local-folder']
+lines-after-imports = 2
+lines-between-types = 1
+known-local-folder = ["deker_server_adapters"]
+known-third-party = ["deker", "deker_tools"]
+extra-standard-library = ["zoneinfo"]
+
+        #########
+        # TESTS #
+        #########
+[tool.pytest.ini_options]  # pytest
+# https://docs.pytest.org
+# https://pypi.org/project/pytest-asyncio/
+# https://pytest-cov.readthedocs.io/en/latest/
+# https://pypi.org/project/pytest-pythonpath/
+# https://pypi.org/project/pytest-sugar/
+minversion = 7.0
+asyncio_mode = "auto"
+addopts = ["--ignore=tmp.py"]
+norecursedirs = "data"
+testpaths = "./tests"
+
+#log_cli = true
+#log_cli_level = "DEBUG"
+
+pythonpath = ["./deker_server_adapters", "./.venv", "./venv"]
+filterwarnings = ["ignore::UserWarning", 'ignore::DeprecationWarning', "ignore::ResourceWarning"]
+
+[tool.coverage.run]  # coverage
+branch = true
+omit = [
+    "tests/*",
+    "tmp.py",
+    "setup.py",
+]
+
+[tool.coverage.html]
+directory = "tests/code_coverage"
+
+[tool.coverage.report]
+fail_under=87
+exclude_lines = [
+    "no cov",
+    "pragma: no cover",
+    "if typing.TYPE_CHECKING:",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "pass",
+    "raise NotImplementedError",
+    "except ImportError",
+    "except ModuleNotFoundError",
+    "except Exception"
+]
