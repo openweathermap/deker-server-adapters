@@ -422,41 +422,36 @@ files = [
 
 [[package]]
 name = "deker"
-version = "1.1.0b5"
+version = "1.1.0"
 description = "Multidimensional arrays storage engine"
 optional = false
 python-versions = ">=3.9,<4.0"
 files = [
-    {file = "deker-1.1.0b5.tar.gz", hash = "sha256:c86746db05de53e9146b633875a31cdded2a047b46cca7d12bd4b7d4916c9c32"},
+    {file = "deker-1.1.0.tar.gz", hash = "sha256:a92ecd4168ab98bf82edb1e4ad07c72b7527806c8e74fab51cfd9a888da567b3"},
 ]
 
 [package.dependencies]
 attrs = ">=23.1.0,<24.0.0"
-deker-local-adapters = ">=1.0.1b2,<2.0.0"
+deker-local-adapters = "1.0.1"
 numpy = ">=1.18,<2.0"
 psutil = ">=5.9.5,<6.0.0"
 tqdm = ">=4.64.1,<5.0.0"
 typing-extensions = ">=4.4.0,<5.0.0"
 
 [package.extras]
-all = ["deker-server-adapters (>=1.0.0rc0,<2.0.0)", "deker-shell (>=1.0.0,<2.0.0)", "xarray (>=2023.5.0,<2024.0.0)"]
-server-adapters = ["deker-server-adapters (>=1.0.0rc0,<2.0.0)"]
+all = ["deker-server-adapters (>=1.0.0,<2.0.0)", "deker-shell (>=1.0.0,<2.0.0)", "xarray (>=2023.5.0,<2024.0.0)"]
+server-adapters = ["deker-server-adapters (>=1.0.0,<2.0.0)"]
 shell = ["deker-shell (>=1.0.0,<2.0.0)"]
 xarray = ["xarray (>=2023.5.0,<2024.0.0)"]
 
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "testpypi"
-
 [[package]]
 name = "deker-local-adapters"
-version = "1.0.1b2"
+version = "1.0.1"
 description = "Plugin with local adapters for deker"
 optional = false
 python-versions = ">=3.9,<4.0"
 files = [
-    {file = "deker_local_adapters-1.0.1b2.tar.gz", hash = "sha256:ba6d5f803bb0b766b36ee7b67ecb8e369d52e31ba0a4624fd86a6ac1ec884814"},
+    {file = "deker_local_adapters-1.0.1.tar.gz", hash = "sha256:d7ed69c122a132e79b557e96fdaccd554e57eacaa2feb42ac1f9a064905023c1"},
 ]
 
 [package.dependencies]
@@ -464,11 +459,6 @@ deker-tools = "1.0.0"
 h5py = ">=3.8.0,<4.0.0"
 hdf5plugin = ">=4.0.1,<5.0.0"
 numpy = ">=1.18,<2.0"
-
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "testpypi"
 
 [[package]]
 name = "deker-tools"
@@ -2241,4 +2231,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "28a35f6e5339347661b8e699d943014bccfb1411b9062c0f1b9e5ce3ea0f17ae"
+content-hash = "6aefadc6104ded8a4648f3d61b2884a3977f8637eae30819d3c7eb30fb8de8a4"

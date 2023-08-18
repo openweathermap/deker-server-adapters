@@ -76,8 +76,7 @@ pytest-mock = "^3.11.1"
 pytest-httpx = "^0.23.1"
 flake8-pyproject = "^1.2.3"
 pytest-random-order = "1.1.0"
-#deker = "1.1.0"
-deker = {version = "1.1.0b-5", source = 'testpypi'}
+deker = "1.1.0"
 
 [tool.poetry.group.docs.dependencies]
 docutils = "0.17"
