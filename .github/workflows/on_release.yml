@@ -5,18 +5,8 @@ on:
     tags:
       - 'v[1-9]+.[0-9]+.[0-9]+'
 
-env:
-  PACKAGE_NAME: deker_server_adapters
-
 jobs:
-  tox_tests:
-    uses: openweathermap/deker-actions/.github/workflows/tox.yml@master
-    with:
-      package-name: $PACKAGE_NAME
-      min-coverage: 87
-
   build_sdist:
-    needs: tox_tests
     name: Build source distribution
     uses: openweathermap/deker-actions/.github/workflows/build.yml@master
 
@@ -28,7 +18,7 @@ jobs:
       id-token: write
     environment:
       name: pypi
-      url: https://pypi.org/p/$PACKAGE_NAME
+      url: https://pypi.org/p/${{ vars.PACKAGE_NAME }}
 
     steps:
       - uses: actions/download-artifact@v3
