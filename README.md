@@ -1,6 +1,7 @@
-# Deker server adapters
+# Deker Server Adapters
 
-**Deker server adapters** is an official native plugin for [Deker](https://github.com/openweathermap/deker), 
-which provides support for official OpenWeather Deker REST API.
+This repository contains [Deker](https://github.com/openweathermap/deker) engine storage adapter
+plugin package that provides support for accessing data remotely stored on
+[OpenWeather](https://openweathermap.org) managed Deker server infrastructure.
 
-Check out [Deker documentation](https://docs.deker.io) for more details.
+Please refer to Deker [documentation](https://docs.deker.io) for more details.
