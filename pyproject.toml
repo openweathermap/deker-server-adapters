@@ -41,6 +41,10 @@ style = "semver"
 metadata = false
 
 [[tool.poetry.source]]
+name = "PyPI"
+priority = "primary"
+
+[[tool.poetry.source]]
 name = "testpypi"
 url = "https://test.pypi.org/simple/"
 priority = "supplemental"
@@ -73,7 +77,7 @@ pytest-httpx = "^0.23.1"
 flake8-pyproject = "^1.2.3"
 pytest-random-order = "1.1.0"
 #deker = "1.1.0"
-deker = {version = "1.1.0b-3", source = 'testpypi'}
+deker = {version = "1.1.0b-5", source = 'testpypi'}
 
 [tool.poetry.group.docs.dependencies]
 docutils = "0.17"
