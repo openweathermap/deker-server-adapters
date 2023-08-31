@@ -9,7 +9,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "deker_server_adapters"
-version = "1.0.0"
+version = "1.0.1"
 description = "Plugin with server adapters for Deker"
 authors = ["OpenWeather <info@openweathermap.org>"]
 license = "GPL-3.0-only"
@@ -76,7 +76,7 @@ pytest-mock = "^3.11.1"
 pytest-httpx = "^0.23.1"
 flake8-pyproject = "^1.2.3"
 pytest-random-order = "1.1.0"
-deker = "1.1.0"
+deker = "^1.1.0"
 
 [tool.poetry.group.docs.dependencies]
 docutils = "0.17"

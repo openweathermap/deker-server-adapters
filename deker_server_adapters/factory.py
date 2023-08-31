@@ -26,7 +26,7 @@ class AdaptersFactory(BaseAdaptersFactory):
         kwargs = {
             "base_url": uri.raw_url,
             "verify": True,
-            "http2": True,
+            "http2": False,
             "timeout": None,
         }
 
