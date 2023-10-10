@@ -1,6 +1,8 @@
 import json
 
 from uuid import uuid4
+from typing import List
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -133,3 +135,27 @@ def test_clear_deker_timeout(varray: VArray, httpx_mock: HTTPXMock, server_varra
 
     with pytest.raises(DekerTimeoutServer):
         server_varray_adapter.clear(varray, np.index_exp[:])
+
+
+def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes: List[str]):
+    with patch.object(varray, "primary_attributes", {}):
+        # Check window slides
+
+        node = server_varray_adapter.get_node(varray)
+        assert node in nodes
+     
+
+
+def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes: List[str]):
+    with patch.object(varray, "primary_attributes", {"foo": "bar"}):
+        # Check window slides
+
+        node = server_varray_adapter.get_node(varray)
+        assert node in nodes
+
+
+def test_get_node_give_same_result(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes: List[str]):
+    first_node = server_varray_adapter.get_node(varray)
+    for _ in range(10):
+        node = server_varray_adapter.get_node(varray)
+        assert node == first_node

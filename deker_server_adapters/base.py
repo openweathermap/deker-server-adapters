@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import datetime
 from json import JSONDecodeError
 from typing import TYPE_CHECKING, Any, Optional, Union
 
@@ -15,6 +16,7 @@ from numpy import ndarray
 
 from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
+from deker_server_adapters.hash_ring import HashRing
 
 
 if TYPE_CHECKING:
@@ -45,6 +47,29 @@ class ServerAdapterMixin:
         """Return client singleton."""
         # We don't need to worry about passing args here, cause it's a singleton.
         return self.ctx.extra["httpx_client"]  # type: ignore[attr-defined]
+
+    @property
+    def hash_ring(self) -> HashRing:
+        """Return HashRing instance."""
+        return self.ctx.extra["hash_ring"]  # type: ignore[attr-defined]
+
+    def get_node(self, array: BaseArray) -> str:
+        """Get hash for primary attributes or id.
+
+        :param array: Array or varray
+        """
+        if not array.primary_attributes:
+            return self.hash_ring.get_node(array.id) or ""
+
+        attrs_to_join = []
+        for attr in array.primary_attributes:
+            attribute = array.primary_attributes[attr]
+            if attr == "v_position":
+                value = "-".join(str(el) for el in attribute)
+            else:
+                value = attribute.isoformat() if isinstance(attribute, datetime) else str(attribute)
+            attrs_to_join.append(value)
+        return self.hash_ring.get_node("/".join(attrs_to_join)) or ""
 
 
 class ServerArrayAdapterMixin(ServerAdapterMixin):
@@ -101,11 +126,20 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :param array: Instance of (v)array
         :return:
         """
+        nodes = [*self.hash_ring.nodes]
         response = self.client.get(
             f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
         )
+        # If node is desync or unaviliable, try another node
+        while response.status_code != STATUS_OK and nodes:
+            node = nodes.pop()
+            response = self.client.get(
+                f"{node}/{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
+            )
+
         if response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't fetch an array")
+
         return response.json()
 
     def update_meta_custom_attributes(
@@ -146,9 +180,10 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :return:
         """
         bounds_ = slice_converter[bounds]
+        node = self.get_node(array)
         try:
             response = self.client.get(
-                f"/v1/collection/{array.collection}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data",
+                f"{node}/v1/collection/{array.collection}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data",
                 headers={"Accept": "application/octet-stream"},
             )
         except TimeoutException:
@@ -178,12 +213,13 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :return:
         """
         bounds = slice_converter[bounds]
+        node = self.get_node(array)
         try:
             if hasattr(data, "tolist"):
                 data = data.tolist()
 
             response = self.client.put(
-                f"/v1/collection/{array.collection}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data",
+                f"{node}/v1/collection/{array.collection}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data",
                 json=data,
             )
 

@@ -1,3 +1,5 @@
+import traceback
+
 from typing import TYPE_CHECKING, Any, Type
 
 from deker.ABC.base_factory import BaseAdaptersFactory
@@ -8,6 +10,7 @@ from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.consts import STATUS_OK
 from deker_server_adapters.errors import DekerServerError
+from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
@@ -51,7 +54,7 @@ class AdaptersFactory(BaseAdaptersFactory):
         )
 
         copied_ctx.extra["httpx_client"] = self.httpx_client
-        self.do_healthcheck()
+        self.do_healthcheck(copied_ctx)
         super().__init__(copied_ctx, uri)
 
     def close(self) -> None:
@@ -113,20 +116,25 @@ class AdaptersFactory(BaseAdaptersFactory):
         """
         return ServerCollectionAdapter(self.ctx)
 
-    def do_healthcheck(self) -> None:
+    def do_healthcheck(self, ctx: CTX) -> None:
         """Check if server is alive."""
-        try:
-            response = self.httpx_client.get("/v1/ping")
-        except Exception:
-            self.httpx_client.close()
-            raise DekerServerError(
-                None,
-                "Healthcheck failed. Server is unavailable. Deker client will be closed.",
-            )
+        response = None
+        nodes = [*ctx.uri.servers]
+        while nodes and (response is None or response.status_code != STATUS_OK):
+            node = nodes.pop()
 
-        if response.status_code != STATUS_OK:
+            try:
+                response = self.httpx_client.get(f"{node}/v1/ping")
+            except Exception:
+                self.logger.error(f"Coudn't get response from {node}")  # noqa
+                traceback.print_exc()
+                continue
+        if response is None or response.status_code != STATUS_OK:
             self.httpx_client.close()
             raise DekerServerError(
                 response,
                 "Healthcheck failed. Deker client will be closed.",
             )
+
+        # set hash_ring based on list from the server
+        ctx.extra["hash_ring"] = HashRing(response.json()["servers"])
