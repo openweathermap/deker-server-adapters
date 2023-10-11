@@ -117,7 +117,10 @@ class AdaptersFactory(BaseAdaptersFactory):
         return ServerCollectionAdapter(self.ctx)
 
     def do_healthcheck(self, ctx: CTX) -> None:
-        """Check if server is alive."""
+        """Check if server is alive.
+
+        :param ctx: App context
+        """
         response = None
         nodes = [*ctx.uri.servers]
         while nodes and (response is None or response.status_code != STATUS_OK):
