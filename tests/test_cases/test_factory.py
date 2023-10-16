@@ -5,8 +5,7 @@ from unittest.mock import patch
 from deker.uri import Uri
 from deker_local_adapters.storage_adapters.hdf5 import HDF5StorageAdapter
 
-from tests.mocks import MockedAdaptersFactory
-
+from ..mocks import MockedAdaptersFactory
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.factory import AdaptersFactory
