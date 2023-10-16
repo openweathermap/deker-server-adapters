@@ -1,4 +1,5 @@
 import json
+from typing import List
 
 from unittest.mock import patch
 from uuid import uuid4
@@ -211,7 +212,6 @@ def test_iter_success(
     array: Array,
     httpx_mock: HTTPXMock,
     server_array_adapter: ServerArrayAdapter,
-    collection: Collection,
 ):
     httpx_mock.add_response(json=[array.as_dict])
     arrays = []
@@ -219,3 +219,29 @@ def test_iter_success(
         arrays.append(array_)
 
     assert arrays == [json.loads(json.dumps(array.as_dict))]
+
+
+
+def test_get_node_by_id(array: Array, server_array_adapter: ServerArrayAdapter, nodes: List[str]):
+    with patch.object(array, "primary_attributes", {}):
+        # Check window slides
+
+        node = server_array_adapter.get_node(array)
+        assert node in nodes
+     
+
+
+def test_get_node_by_primary(array: Array, server_array_adapter: ServerArrayAdapter, nodes: List[str]):
+    with patch.object(array, "primary_attributes", {"foo": "bar"}):
+        # Check window slides
+
+        node = server_array_adapter.get_node(array)
+        assert node in nodes
+
+
+def test_get_node_give_same_result(array: Array, server_array_adapter: ServerArrayAdapter, nodes: List[str]):
+    first_node = server_array_adapter.get_node(array)
+    for _ in range(10):
+        node = server_array_adapter.get_node(array)
+        assert node == first_node
+

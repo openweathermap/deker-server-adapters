@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict
+from typing import Dict, List
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -12,23 +12,32 @@ from deker.config import DekerConfig
 from deker.ctx import CTX
 from deker.uri import Uri
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
-from httpx import Client
 from pytest_mock import MockerFixture
+
+from tests.mocks import MockedAdaptersFactory
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.factory import AdaptersFactory
+from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
 @pytest.fixture(scope="session")
-def collection_path() -> Uri:
-    return Uri.create("http://localhost:8000/v1/collection")
+def nodes() -> List[str]:
+    return ["http://localhost:8000", "http://localhost:8001"]
 
 
 @pytest.fixture(scope="session")
-def ctx(session_mocker: MockerFixture, collection_path: Uri) -> CTX:
+def collection_path(nodes: List[str]) -> Uri:
+    uri = Uri.create("http://localhost:8000/v1/collection")
+    uri.servers = nodes
+    return uri
+
+
+@pytest.fixture(scope="session")
+def ctx(session_mocker: MockerFixture, collection_path: Uri, nodes: List[str]) -> CTX:
     ctx = CTX(
         uri=collection_path,
         config=DekerConfig(
@@ -43,13 +52,13 @@ def ctx(session_mocker: MockerFixture, collection_path: Uri) -> CTX:
     )
     with HttpxClient(base_url="http://localhost:8000/") as client:
         ctx.extra["httpx_client"] = client
+        ctx.extra["hash_ring"] = HashRing(nodes)
         yield ctx
 
 
 @pytest.fixture(scope="session")
 def adapter_factory(ctx: CTX, collection_path: Uri) -> AdaptersFactory:
-    with patch.object(AdaptersFactory, "do_healthcheck"):
-        yield AdaptersFactory(ctx, uri=collection_path)
+    return MockedAdaptersFactory(ctx, uri=collection_path)
 
 
 @pytest.fixture()
