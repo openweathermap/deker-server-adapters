@@ -1,7 +1,8 @@
 from collections.abc import Generator
 from datetime import datetime
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Optional, Union
+from random import choice
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 import numpy as np
 
@@ -17,6 +18,7 @@ from numpy import ndarray
 from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
 from deker_server_adapters.hash_ring import HashRing
+from deker_server_adapters.utils import request_in_cluster
 
 
 if TYPE_CHECKING:
@@ -39,8 +41,13 @@ def create_array_from_meta(
     return class_._create_from_meta(*args, **kwargs)
 
 
-class ServerAdapterMixin:
+class BaseServerAdapterMixin:
     """Mixin for network communication."""
+
+    @property
+    def leader_node(self) -> Uri:
+        """Return leader node."""
+        return self.ctx.extra["leader_node"]  # type: ignore[attr-defined]
 
     @property
     def client(self) -> Client:
@@ -52,6 +59,26 @@ class ServerAdapterMixin:
     def hash_ring(self) -> HashRing:
         """Return HashRing instance."""
         return self.ctx.extra["hash_ring"]  # type: ignore[attr-defined]
+
+    @property
+    def nodes(self) -> List[str]:
+        """Return list of nodes."""
+        return self.ctx.extra["nodes"]  # type: ignore[attr-defined]
+
+
+class ServerArrayAdapterMixin(BaseServerAdapterMixin):
+    """Mixin with server logic for adapters."""
+
+    type: ArrayType
+    collection_path: Uri
+
+    def get_host_url(self, id_: str) -> str:
+        """Get random node with given id.
+
+        :param id_: ID of node
+        """
+        hosts = self.ctx.extra["nodes_mapping"][id_]  # type: ignore[attr-defined]
+        return choice(hosts)
 
     def get_node(self, array: BaseArray) -> str:
         """Get hash for primary attributes or id.
@@ -70,13 +97,6 @@ class ServerAdapterMixin:
                 value = attribute.isoformat() if isinstance(attribute, datetime) else str(attribute)
             attrs_to_join.append(value)
         return self.hash_ring.get_node("/".join(attrs_to_join)) or ""
-
-
-class ServerArrayAdapterMixin(ServerAdapterMixin):
-    """Mixin with server logic for adapters."""
-
-    type: ArrayType
-    collection_path: Uri
 
     def create(self, array: Union[dict, "BaseArray"]) -> BaseArray:
         """Create array on server.
@@ -126,18 +146,9 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :param array: Instance of (v)array
         :return:
         """
-        nodes = [*self.hash_ring.nodes]
-        response = self.client.get(
-            f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
-        )
-        # If node is desync or unaviliable, try another node
-        while response.status_code != STATUS_OK and nodes:
-            node = nodes.pop()
-            response = self.client.get(
-                f"{node}/{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
-            )
-
-        if response.status_code != STATUS_OK:
+        url = (f"/{self.type.name}/by-id/{array.id}",)
+        response = request_in_cluster(url=url, nodes=self.nodes, client=self.client)
+        if response is None or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't fetch an array")
 
         return response.json()

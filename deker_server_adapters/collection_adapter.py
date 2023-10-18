@@ -6,12 +6,13 @@ from deker.errors import DekerCollectionAlreadyExistsError, DekerCollectionNotEx
 from deker.uri import Uri
 from httpx import Client
 
-from deker_server_adapters.base import ServerAdapterMixin
+from deker_server_adapters.base import BaseServerAdapterMixin
 from deker_server_adapters.consts import BAD_REQUEST, COLLECTION_NAME_PARAM, NOT_FOUND, STATUS_CREATED, STATUS_OK
 from deker_server_adapters.errors import DekerServerError
+from deker_server_adapters.utils import request_in_cluster
 
 
-class ServerCollectionAdapter(ServerAdapterMixin, BaseCollectionAdapter):
+class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
     """Server realization for collection adapter."""
 
     COLLECTION_URL_PREFIX = "v1/collection"
@@ -57,12 +58,13 @@ class ServerCollectionAdapter(ServerAdapterMixin, BaseCollectionAdapter):
 
         :param name: Name of collection
         """
-        response = self.client.get(f"/{self.COLLECTION_URL_PREFIX}/{name}")
+        url = f"/{self.COLLECTION_URL_PREFIX}/{name}"
+        response = request_in_cluster(url=url, nodes=self.hash_ring.nodes, client=self.client)
 
-        if response.status_code == STATUS_OK:
+        if response and response.status_code == STATUS_OK:
             return response.json()
 
-        if response.status_code == NOT_FOUND:
+        if response and response.status_code == NOT_FOUND:
             raise DekerCollectionNotExistsError
 
         raise DekerServerError(response, f"Couldn't get the collection {name=}")
@@ -93,10 +95,10 @@ class ServerCollectionAdapter(ServerAdapterMixin, BaseCollectionAdapter):
     @property
     def collections_resource(self) -> Uri:
         """Full path with to collections resource."""
-        return self.uri / self.COLLECTION_URL_PREFIX
+        return self.leader_node / self.COLLECTION_URL_PREFIX
 
     def is_deleted(self, collection: Collection) -> bool:
-        """Check if method is deleted.
+        """Check if collection is deleted.
 
         :param collection: Collection instance
         :return:
@@ -104,8 +106,10 @@ class ServerCollectionAdapter(ServerAdapterMixin, BaseCollectionAdapter):
         return False
 
     def __iter__(self) -> Generator[dict, None, None]:
-        all_collections_response = self.client.get(f"/{self.COLLECTIONS_URL_PREFIX}")
-        if all_collections_response.status_code != STATUS_OK:
+        all_collections_response = request_in_cluster(
+            url=self.COLLECTIONS_URL_PREFIX, nodes=self.hash_ring.nodes, client=self.client
+        )
+        if all_collections_response is None or all_collections_response.status_code != STATUS_OK:
             raise DekerServerError(
                 all_collections_response,
                 "Couldn't get list of collections",

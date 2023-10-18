@@ -1,6 +1,7 @@
+import re
+
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List
-from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -12,9 +13,8 @@ from deker.config import DekerConfig
 from deker.ctx import CTX
 from deker.uri import Uri
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from pytest_httpx import HTTPXMock
 from pytest_mock import MockerFixture
-
-from tests.mocks import MockedAdaptersFactory
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
@@ -22,6 +22,28 @@ from deker_server_adapters.factory import AdaptersFactory
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
+
+
+@pytest.fixture()
+def mocked_ping() -> Dict:
+    return {
+        "mode": "cluster",
+        "this_id": "8381202B-8C95-487A-B9B5-0B527056804E",
+        "leader_id": "8381202B-8C95-487A-B9B5-0B527056804E",
+        "current_nodes": [
+            {
+                "id": "8381202B-8C95-487A-B9B5-0B527056804E",
+                "host": "host1.owm.io",
+                "port": 443,
+                "protocol": "http",
+            },
+        ],
+    }
+
+
+@pytest.fixture()
+def mock_healthcheck(httpx_mock: HTTPXMock, mocked_ping):
+    httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping)
 
 
 @pytest.fixture(scope="session")
@@ -53,12 +75,14 @@ def ctx(session_mocker: MockerFixture, collection_path: Uri, nodes: List[str]) -
     with HttpxClient(base_url="http://localhost:8000/") as client:
         ctx.extra["httpx_client"] = client
         ctx.extra["hash_ring"] = HashRing(nodes)
+        ctx.extra["leader_node"] = Uri.create("http://localhost:8000")
+        ctx.extra["nodes"] = ["http://localhost:8000"]
         yield ctx
 
 
-@pytest.fixture(scope="session")
-def adapter_factory(ctx: CTX, collection_path: Uri) -> AdaptersFactory:
-    return MockedAdaptersFactory(ctx, uri=collection_path)
+@pytest.fixture()
+def adapter_factory(ctx: CTX, collection_path: Uri, mock_healthcheck) -> AdaptersFactory:
+    return AdaptersFactory(ctx, uri=collection_path)
 
 
 @pytest.fixture()

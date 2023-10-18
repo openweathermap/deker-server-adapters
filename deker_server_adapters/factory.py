@@ -1,6 +1,5 @@
-import traceback
-
-from typing import TYPE_CHECKING, Any, Type
+from collections import defaultdict
+from typing import TYPE_CHECKING, Any, Dict, Type
 
 from deker.ABC.base_factory import BaseAdaptersFactory
 from deker.ctx import CTX
@@ -12,6 +11,7 @@ from deker_server_adapters.consts import STATUS_OK
 from deker_server_adapters.errors import DekerServerError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
+from deker_server_adapters.utils import request_in_cluster
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -40,9 +40,6 @@ class AdaptersFactory(BaseAdaptersFactory):
         # update values from context kwargs
         kwargs.update(ctx.extra.get("httpx_conf", {}))
 
-        # Instantiate an httpx client
-        self.httpx_client = HttpxClient(**kwargs)
-
         # We have to copy ctx to create new instance of extra
         # so client would be different for every factory
         copied_ctx = CTX(
@@ -53,8 +50,8 @@ class AdaptersFactory(BaseAdaptersFactory):
             is_closed=ctx.is_closed,
         )
 
-        copied_ctx.extra["httpx_client"] = self.httpx_client
-        self.do_healthcheck(copied_ctx)
+        # Cluster config
+        self.get_cluster_config_and_configure_context(copied_ctx, default_httpx_client_kwargs=kwargs)
         super().__init__(copied_ctx, uri)
 
     def close(self) -> None:
@@ -116,28 +113,71 @@ class AdaptersFactory(BaseAdaptersFactory):
         """
         return ServerCollectionAdapter(self.ctx)
 
-    def do_healthcheck(self, ctx: CTX) -> None:
+    def do_healthcheck_and_get_config(self, client: HttpxClient, ctx: CTX) -> Dict:
         """Check if server is alive.
 
+        Fetches config as well.
         :param ctx: App context
+        :param client: Httpx Client
         """
-        response = None
-        nodes = [*ctx.uri.servers]
-        while nodes and (response is None or response.status_code != STATUS_OK):
-            node = nodes.pop()
+        url = "v1/ping"
+        response = request_in_cluster(url=url, nodes=ctx.uri.servers, client=client)
 
-            try:
-                response = self.httpx_client.get(f"{node}/v1/ping")
-            except Exception:
-                self.logger.error(f"Coudn't get response from {node}")  # noqa
-                traceback.print_exc()
-                continue
         if response is None or response.status_code != STATUS_OK:
-            self.httpx_client.close()
+            client.close()
             raise DekerServerError(
                 response,
                 "Healthcheck failed. Deker client will be closed.",
             )
 
-        # set hash_ring based on list from the server
-        ctx.extra["hash_ring"] = HashRing(response.json()["servers"])
+        return response.json()
+
+    def __set_cluster_config(self, cluster_config: Dict, ctx: CTX):
+        """Set cluster config in the CTX.
+
+        :param cluster_config: Custer config json from server
+        :param ctx: App cotext (Deker CTX)
+        """
+        # IDs used in hash ring
+        ids = []
+        # Mapping from ID to host
+        id_to_host_mapping = defaultdict(list)
+        leader_node = None
+        nodes = []
+
+        # Fill Ids and Mappings
+        for node in cluster_config["current_nodes"]:
+            url = f"{node['protocol']}://{node['host']}:{node['port']}"
+            nodes.append(url)
+            ids.append(node["id"])
+            id_to_host_mapping[node["id"]].append(url)
+            if node["id"] == cluster_config["leader_id"]:
+                leader_node = url
+
+        if leader_node is None:
+            raise DekerServerError(None, f"Leader node cannot be setted {cluster_config=}")
+
+        # Set variables in context
+        ctx.extra["leader_node"] = Uri.create(leader_node)
+        ctx.extra["nodes_mapping"] = id_to_host_mapping
+        ctx.extra["hash_ring"] = HashRing(ids)
+        ctx.extra["nodes"] = nodes
+
+    def get_cluster_config_and_configure_context(self, ctx: CTX, default_httpx_client_kwargs: Dict):
+        """Get info from node and set config.
+
+        :param ctx: CTX where client and config will be injected
+        :param default_httpx_client_kwargs: Default variables for Httpx client
+        """
+        # Instantiate an httpx client
+        client = HttpxClient(**default_httpx_client_kwargs)
+
+        # Get Cluster config
+        cluster_config = self.do_healthcheck_and_get_config(client, ctx)
+
+        # Set cluster config
+        self.__set_cluster_config(cluster_config, ctx)
+
+        # Set Httpx client based on cluster config
+        self.httpx_client = HttpxClient(**{**default_httpx_client_kwargs, "base_url": ctx.extra["leader_node"].raw_url})
+        ctx.extra["httpx_client"] = self.httpx_client
