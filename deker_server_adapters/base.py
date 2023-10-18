@@ -146,7 +146,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param array: Instance of (v)array
         :return:
         """
-        url = (f"/{self.type.name}/by-id/{array.id}",)
+        url = f"/{self.type.name}/by-id/{array.id}"
         response = request_in_cluster(url=url, nodes=self.nodes, client=self.client)
         if response is None or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't fetch an array")

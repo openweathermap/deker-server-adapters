@@ -132,7 +132,7 @@ class AdaptersFactory(BaseAdaptersFactory):
 
         return response.json()
 
-    def __set_cluster_config(self, cluster_config: Dict, ctx: CTX):
+    def __set_cluster_config(self, cluster_config: Dict, ctx: CTX) -> None:
         """Set cluster config in the CTX.
 
         :param cluster_config: Custer config json from server
@@ -163,7 +163,7 @@ class AdaptersFactory(BaseAdaptersFactory):
         ctx.extra["hash_ring"] = HashRing(ids)
         ctx.extra["nodes"] = nodes
 
-    def get_cluster_config_and_configure_context(self, ctx: CTX, default_httpx_client_kwargs: Dict):
+    def get_cluster_config_and_configure_context(self, ctx: CTX, default_httpx_client_kwargs: Dict) -> None:
         """Get info from node and set config.
 
         :param ctx: CTX where client and config will be injected
