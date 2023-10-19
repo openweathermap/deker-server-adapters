@@ -132,7 +132,7 @@ class AdaptersFactory(BaseAdaptersFactory):
         :param in_cluster: If we are in cluster
         """
 
-        def check_response(response: Response, client: HttpxClient):
+        def check_response(response: Optional[Response], client: HttpxClient) -> None:
             if response is None or response.status_code != STATUS_OK:
                 client.close()
                 raise DekerServerError(
@@ -149,7 +149,7 @@ class AdaptersFactory(BaseAdaptersFactory):
 
         if in_cluster:
             try:
-                config = response.json()
+                config = response.json()  # type: ignore[union-attr]
                 return config
             except JSONDecodeError:
                 raise DekerClusterError(response, "Server responded with empty config")
@@ -198,7 +198,7 @@ class AdaptersFactory(BaseAdaptersFactory):
         cluster_config = self.do_healthcheck(client, ctx, in_cluster=True)
 
         # Set cluster config
-        self.__set_cluster_config(cluster_config, ctx)
+        self.__set_cluster_config(cluster_config, ctx)  # type: ignore[arg-type]
 
         # Set Httpx client based on cluster config
         self.httpx_client = HttpxClient(**{**default_httpx_client_kwargs, "base_url": ctx.extra["leader_node"].raw_url})
