@@ -60,7 +60,4 @@ def make_request(
 
             response = _request(url, node, client, request_kwargs)
 
-            if response is None:
-                continue
-
     return response
