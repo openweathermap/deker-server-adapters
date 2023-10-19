@@ -8,11 +8,34 @@ from httpx import Client, Response
 
 from deker_server_adapters.consts import STATUS_OK
 
+
 logger = getLogger(__name__)
 
 
-def request_in_cluster(
-        url: str, nodes: Sequence, client: Client, request_kwargs: Optional[Dict] = None
+def _request(url: str, node: str, client: Client, request_kwargs: Optional[Dict] = None) -> Optional[Response]:
+    """Internal request func - Make GET request on given node.
+
+    :param url: What we request
+    :param request_kwargs: Kwargs for request
+    :param node: Node for requesting
+    :param client: Httpx Client
+    """
+    response = None
+
+    try:
+        if request_kwargs:
+            response = client.get(f"{node}/{url}", **request_kwargs)
+        else:
+            response = client.get(f"{node}/{url}")
+    except Exception:
+        logger.error(f"Coudn't get response from {node}")  # noqa
+        traceback.print_exc()
+
+    return response
+
+
+def make_request(
+    url: str, nodes: Sequence, client: Client, request_kwargs: Optional[Dict] = None
 ) -> Optional[Response]:
     """Make GET request on random node, while response is not received.
 
@@ -39,30 +62,5 @@ def request_in_cluster(
 
             if response is None:
                 continue
-
-    print(response)
-    return response
-
-
-def _request(
-        url: str, node: str, client: Client, request_kwargs: Optional[Dict] = None
-) -> Optional[Response]:
-    """Internal request func - Make GET request on given node.
-
-    :param url: What we request
-    :param request_kwargs: Kwargs for request
-    :param node: Node for requesting
-    :param client: Httpx Client
-    """
-    response = None
-
-    try:
-        if request_kwargs:
-            response = client.get(f"{node}/{url}", **request_kwargs)
-        else:
-            response = client.get(f"{node}/{url}")
-    except Exception:
-        logger.error(f"Coudn't get response from {node}")  # noqa
-        traceback.print_exc()
 
     return response

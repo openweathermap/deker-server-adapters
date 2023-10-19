@@ -9,7 +9,7 @@ from httpx import Client
 from deker_server_adapters.base import BaseServerAdapterMixin
 from deker_server_adapters.consts import BAD_REQUEST, COLLECTION_NAME_PARAM, NOT_FOUND, STATUS_CREATED, STATUS_OK
 from deker_server_adapters.errors import DekerServerError
-from deker_server_adapters.utils import request_in_cluster
+from deker_server_adapters.utils import make_request
 
 
 class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
@@ -59,7 +59,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         :param name: Name of collection
         """
         url = f"/{self.COLLECTION_URL_PREFIX}/{name}"
-        response = request_in_cluster(url=url, nodes=self.hash_ring.nodes, client=self.client)
+        response = make_request(url=url, nodes=self.hash_ring.nodes, client=self.client)
 
         if response and response.status_code == STATUS_OK:
             return response.json()
@@ -106,7 +106,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         return False
 
     def __iter__(self) -> Generator[dict, None, None]:
-        all_collections_response = request_in_cluster(
+        all_collections_response = make_request(
             url=self.COLLECTIONS_URL_PREFIX, nodes=self.hash_ring.nodes, client=self.client
         )
         if all_collections_response is None or all_collections_response.status_code != STATUS_OK:
