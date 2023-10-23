@@ -18,7 +18,7 @@ from numpy import ndarray
 from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
 from deker_server_adapters.hash_ring import HashRing
-from deker_server_adapters.utils import request_in_cluster
+from deker_server_adapters.utils import make_request
 
 
 if TYPE_CHECKING:
@@ -147,7 +147,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :return:
         """
         url = f"/{self.type.name}/by-id/{array.id}"
-        response = request_in_cluster(url=url, nodes=self.nodes, client=self.client)
+        response = make_request(url=url, nodes=self.nodes, client=self.client)
         if response is None or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't fetch an array")
 

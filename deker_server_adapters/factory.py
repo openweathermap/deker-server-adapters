@@ -1,17 +1,19 @@
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Dict, Type
+from json import JSONDecodeError
+from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
 from deker.ABC.base_factory import BaseAdaptersFactory
 from deker.ctx import CTX
 from deker.uri import Uri
+from httpx import Response
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.consts import STATUS_OK
-from deker_server_adapters.errors import DekerServerError
+from deker_server_adapters.errors import DekerClusterError, DekerServerError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import request_in_cluster
+from deker_server_adapters.utils import make_request
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -51,7 +53,15 @@ class AdaptersFactory(BaseAdaptersFactory):
         )
 
         # Cluster config
-        self.get_cluster_config_and_configure_context(copied_ctx, default_httpx_client_kwargs=kwargs)
+        if hasattr(uri, "servers") and uri.servers:
+            self.get_cluster_config_and_configure_context(copied_ctx, default_httpx_client_kwargs=kwargs)
+
+        # Single server
+        else:
+            self.httpx_client = HttpxClient(**kwargs)
+            ctx.extra["httpx_client"] = self.httpx_client
+            self.do_healthcheck(client=self.httpx_client, ctx=copied_ctx, in_cluster=False)
+
         super().__init__(copied_ctx, uri)
 
     def close(self) -> None:
@@ -113,24 +123,36 @@ class AdaptersFactory(BaseAdaptersFactory):
         """
         return ServerCollectionAdapter(self.ctx)
 
-    def do_healthcheck_and_get_config(self, client: HttpxClient, ctx: CTX) -> Dict:
+    def do_healthcheck(self, client: HttpxClient, ctx: CTX, in_cluster: bool = False) -> Optional[Dict]:
         """Check if server is alive.
 
         Fetches config as well.
         :param ctx: App context
         :param client: Httpx Client
+        :param in_cluster: If we are in cluster
         """
+
+        def check_response(response: Optional[Response], client: HttpxClient) -> None:
+            if response is None or response.status_code != STATUS_OK:
+                client.close()
+                raise DekerServerError(
+                    response,
+                    "Healthcheck failed. Deker client will be closed.",
+                )
+
         url = "v1/ping"
-        response = request_in_cluster(url=url, nodes=ctx.uri.servers, client=client)
 
-        if response is None or response.status_code != STATUS_OK:
-            client.close()
-            raise DekerServerError(
-                response,
-                "Healthcheck failed. Deker client will be closed.",
-            )
+        # If we do healthcheck in cluster
+        nodes = [*ctx.uri.servers] if in_cluster else [ctx.uri.raw_url]
+        response = make_request(url=url, nodes=nodes, client=client)
+        check_response(response=response, client=client)
 
-        return response.json()
+        if in_cluster:
+            try:
+                config = response.json()  # type: ignore[union-attr]
+                return config
+            except JSONDecodeError:
+                raise DekerClusterError(response, "Server responded with empty config")
 
     def __set_cluster_config(self, cluster_config: Dict, ctx: CTX) -> None:
         """Set cluster config in the CTX.
@@ -173,10 +195,10 @@ class AdaptersFactory(BaseAdaptersFactory):
         client = HttpxClient(**default_httpx_client_kwargs)
 
         # Get Cluster config
-        cluster_config = self.do_healthcheck_and_get_config(client, ctx)
+        cluster_config = self.do_healthcheck(client, ctx, in_cluster=True)
 
         # Set cluster config
-        self.__set_cluster_config(cluster_config, ctx)
+        self.__set_cluster_config(cluster_config, ctx)  # type: ignore[arg-type]
 
         # Set Httpx client based on cluster config
         self.httpx_client = HttpxClient(**{**default_httpx_client_kwargs, "base_url": ctx.extra["leader_node"].raw_url})

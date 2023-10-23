@@ -58,7 +58,7 @@ def collection_path(nodes: List[str]) -> Uri:
     return uri
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def ctx(session_mocker: MockerFixture, collection_path: Uri, nodes: List[str]) -> CTX:
     ctx = CTX(
         uri=collection_path,
