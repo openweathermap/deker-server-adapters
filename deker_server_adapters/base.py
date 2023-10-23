@@ -8,6 +8,7 @@ import numpy as np
 
 from deker import Array, Collection, VArray
 from deker.ABC.base_array import BaseArray
+from deker.ctx import CTX
 from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Numeric, Slice
 from deker.uri import Uri
@@ -18,7 +19,7 @@ from numpy import ndarray
 from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
 from deker_server_adapters.hash_ring import HashRing
-from deker_server_adapters.utils import make_request
+from deker_server_adapters.utils import get_api_version, make_request
 
 
 if TYPE_CHECKING:
@@ -44,10 +45,7 @@ def create_array_from_meta(
 class BaseServerAdapterMixin:
     """Mixin for network communication."""
 
-    @property
-    def leader_node(self) -> Uri:
-        """Return leader node."""
-        return self.ctx.extra["leader_node"]  # type: ignore[attr-defined]
+    ctx: CTX
 
     @property
     def client(self) -> Client:
@@ -58,12 +56,18 @@ class BaseServerAdapterMixin:
     @property
     def hash_ring(self) -> HashRing:
         """Return HashRing instance."""
-        return self.ctx.extra["hash_ring"]  # type: ignore[attr-defined]
+        hash_ring = self.ctx.extra.get("hash_ring")
+        if not hash_ring:
+            raise AttributeError("Attempt to use cluster logic in single server mode")
+        return hash_ring  # type: ignore[attr-defined]
 
     @property
     def nodes(self) -> List[str]:
         """Return list of nodes."""
-        return self.ctx.extra["nodes"]  # type: ignore[attr-defined]
+        nodes = self.ctx.extra["nodes"]  # type: ignore[attr-defined]
+        if not nodes:
+            raise AttributeError("Attempt to use cluster logic in single server mode")
+        return nodes
 
 
 class ServerArrayAdapterMixin(BaseServerAdapterMixin):
@@ -194,7 +198,16 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         node = self.get_node(array)
         try:
             response = self.client.get(
-                f"{node}/v1/collection/{array.collection}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data",
+                f"{node}/"
+                f"{get_api_version(self.ctx)}/"
+                f"collection/"
+                f"{array.collection}/"
+                f"{self.type.name}/"
+                f"by-id/"
+                f"{array.id}/"
+                f"subset/"
+                f"{bounds_}/"
+                f"data",
                 headers={"Accept": "application/octet-stream"},
             )
         except TimeoutException:
@@ -228,9 +241,8 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         try:
             if hasattr(data, "tolist"):
                 data = data.tolist()
-
             response = self.client.put(
-                f"{node}/v1/collection/{array.collection}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data",
+                f"{node}/{self.collection_path}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data",
                 json=data,
             )
 

@@ -13,7 +13,7 @@ from deker_server_adapters.consts import STATUS_OK
 from deker_server_adapters.errors import DekerClusterError, DekerServerError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import make_request
+from deker_server_adapters.utils import get_api_version, make_request
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -51,16 +51,16 @@ class AdaptersFactory(BaseAdaptersFactory):
             executor=ctx.executor,
             is_closed=ctx.is_closed,
         )
+        self.httpx_client = HttpxClient(**kwargs)
+        copied_ctx.extra["httpx_client"] = self.httpx_client
 
         # Cluster config
         if hasattr(uri, "servers") and uri.servers:
-            self.get_cluster_config_and_configure_context(copied_ctx, default_httpx_client_kwargs=kwargs)
+            self.get_cluster_config_and_configure_context(copied_ctx)
 
         # Single server
         else:
-            self.httpx_client = HttpxClient(**kwargs)
-            ctx.extra["httpx_client"] = self.httpx_client
-            self.do_healthcheck(client=self.httpx_client, ctx=copied_ctx, in_cluster=False)
+            self.do_healthcheck(ctx=copied_ctx, in_cluster=False)
 
         super().__init__(copied_ctx, uri)
 
@@ -123,12 +123,11 @@ class AdaptersFactory(BaseAdaptersFactory):
         """
         return ServerCollectionAdapter(self.ctx)
 
-    def do_healthcheck(self, client: HttpxClient, ctx: CTX, in_cluster: bool = False) -> Optional[Dict]:
+    def do_healthcheck(self, ctx: CTX, in_cluster: bool = False) -> Optional[Dict]:
         """Check if server is alive.
 
         Fetches config as well.
         :param ctx: App context
-        :param client: Httpx Client
         :param in_cluster: If we are in cluster
         """
 
@@ -140,12 +139,12 @@ class AdaptersFactory(BaseAdaptersFactory):
                     "Healthcheck failed. Deker client will be closed.",
                 )
 
-        url = "v1/ping"
+        url = f"{get_api_version(ctx)}/ping"
 
         # If we do healthcheck in cluster
         nodes = [*ctx.uri.servers] if in_cluster else [ctx.uri.raw_url]
-        response = make_request(url=url, nodes=nodes, client=client)
-        check_response(response=response, client=client)
+        response = make_request(url=url, nodes=nodes, client=self.httpx_client)
+        check_response(response=response, client=self.httpx_client)
 
         if in_cluster:
             try:
@@ -185,21 +184,16 @@ class AdaptersFactory(BaseAdaptersFactory):
         ctx.extra["hash_ring"] = HashRing(ids)
         ctx.extra["nodes"] = nodes
 
-    def get_cluster_config_and_configure_context(self, ctx: CTX, default_httpx_client_kwargs: Dict) -> None:
+    def get_cluster_config_and_configure_context(self, ctx: CTX) -> None:
         """Get info from node and set config.
 
         :param ctx: CTX where client and config will be injected
-        :param default_httpx_client_kwargs: Default variables for Httpx client
         """
-        # Instantiate an httpx client
-        client = HttpxClient(**default_httpx_client_kwargs)
-
         # Get Cluster config
-        cluster_config = self.do_healthcheck(client, ctx, in_cluster=True)
+        cluster_config = self.do_healthcheck(ctx, in_cluster=True)
 
         # Set cluster config
         self.__set_cluster_config(cluster_config, ctx)  # type: ignore[arg-type]
 
         # Set Httpx client based on cluster config
-        self.httpx_client = HttpxClient(**{**default_httpx_client_kwargs, "base_url": ctx.extra["leader_node"].raw_url})
-        ctx.extra["httpx_client"] = self.httpx_client
+        self.httpx_client.base_url = ctx.extra["leader_node"].raw_url

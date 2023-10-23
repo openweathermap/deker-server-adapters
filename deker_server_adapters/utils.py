@@ -1,9 +1,8 @@
-import traceback
-
 from logging import getLogger
 from random import randint
-from typing import Dict, Optional, Sequence
+from typing import Dict, List, Optional, Set, Tuple, Union
 
+from deker.ctx import CTX
 from httpx import Client, Response
 
 from deker_server_adapters.consts import STATUS_OK
@@ -28,14 +27,13 @@ def _request(url: str, node: str, client: Client, request_kwargs: Optional[Dict]
         else:
             response = client.get(f"{node}/{url}")
     except Exception:
-        logger.error(f"Coudn't get response from {node}")  # noqa
-        traceback.print_exc()
+        logger.exception(f"Coudn't get response from {node}")  # noqa
 
     return response
 
 
 def make_request(
-    url: str, nodes: Sequence, client: Client, request_kwargs: Optional[Dict] = None
+    url: str, nodes: Union[List, Tuple, Set], client: Client, request_kwargs: Optional[Dict] = None
 ) -> Optional[Response]:
     """Make GET request on random node, while response is not received.
 
@@ -58,3 +56,12 @@ def make_request(
             response = _request(url, node, client, request_kwargs)
 
     return response
+
+
+def get_api_version(ctx: "CTX") -> str:
+    """Get API Version from context.
+
+    We have it as separate function to incapsulate logic.
+    :param ctx: Context
+    """
+    return ctx.extra.get("API_VERSION", "v1")
