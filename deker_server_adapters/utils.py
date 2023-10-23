@@ -47,9 +47,6 @@ def make_request(
     response = None
     nodes = list(nodes)
 
-    if len(nodes) == 0:
-        return response
-
     if len(nodes) == 1:
         node = nodes.pop(0)
         response = _request(url, node, client, request_kwargs)
