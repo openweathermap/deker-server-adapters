@@ -9,16 +9,24 @@ from httpx import Client
 from deker_server_adapters.base import BaseServerAdapterMixin
 from deker_server_adapters.consts import BAD_REQUEST, COLLECTION_NAME_PARAM, NOT_FOUND, STATUS_CREATED, STATUS_OK
 from deker_server_adapters.errors import DekerServerError
-from deker_server_adapters.utils import make_request
+from deker_server_adapters.utils import get_api_version, make_request
 
 
 class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
     """Server realization for collection adapter."""
 
-    COLLECTION_URL_PREFIX = "v1/collection"
-    COLLECTIONS_URL_PREFIX = "v1/collections"
     client: Client
     metadata_version = "0.2"
+
+    @property
+    def collection_url_prefix(self) -> str:
+        """Return prefix to collection."""
+        return f"{get_api_version(self.ctx)}/collection"
+
+    @property
+    def collections_url_prefix(self) -> str:
+        """Return prefix to collections."""
+        return f"{get_api_version(self.ctx)}/collections"
 
     def delete(self, collection: "Collection") -> None:
         """Delete collection from server.
@@ -26,7 +34,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         :param collection: Deker's collection instance
         """
         response = self.client.delete(
-            f"/{self.COLLECTION_URL_PREFIX}/{collection.name}",
+            f"/{self.collection_url_prefix}/{collection.name}",
         )
 
         if response.status_code == STATUS_OK:
@@ -43,7 +51,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         :param collection: Deker's collection instance
         """
         data = collection.as_dict
-        response = self.client.post(f"/{self.COLLECTIONS_URL_PREFIX}", json=data)
+        response = self.client.post(f"/{self.collections_url_prefix}", json=data)
 
         if response.status_code == STATUS_CREATED:
             return
@@ -58,7 +66,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
 
         :param name: Name of collection
         """
-        url = f"/{self.COLLECTION_URL_PREFIX}/{name}"
+        url = f"/{self.collection_url_prefix}/{name}"
         response = make_request(url=url, nodes=self.hash_ring.nodes, client=self.client)
 
         if response and response.status_code == STATUS_OK:
@@ -77,7 +85,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         """
         array_type = "varrays" if collection.varray_schema else "arrays"
         response = self.client.put(
-            f"/{self.COLLECTION_URL_PREFIX}/{collection.name}/{array_type}",
+            f"/{self.collection_url_prefix}/{collection.name}/{array_type}",
             json=[],
         )
 
@@ -95,7 +103,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
     @property
     def collections_resource(self) -> Uri:
         """Full path with to collections resource."""
-        return self.leader_node / self.COLLECTION_URL_PREFIX
+        return Uri.create(str(self.client.base_url)) / self.collection_url_prefix
 
     def is_deleted(self, collection: Collection) -> bool:
         """Check if collection is deleted.
@@ -107,7 +115,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
 
     def __iter__(self) -> Generator[dict, None, None]:
         all_collections_response = make_request(
-            url=self.COLLECTIONS_URL_PREFIX, nodes=self.hash_ring.nodes, client=self.client
+            url=self.collections_url_prefix, nodes=self.hash_ring.nodes, client=self.client
         )
         if all_collections_response is None or all_collections_response.status_code != STATUS_OK:
             raise DekerServerError(

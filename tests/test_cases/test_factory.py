@@ -76,4 +76,15 @@ def test_if_factory_can_work_in_single_mode(ctx):
         uri = Uri.create("http://test:test@localhost/")
         factory = AdaptersFactory(ctx, uri)
         assert mock.call_args.kwargs["in_cluster"] == False
-        assert not mock.call_args.kwargs["client"].is_closed
+        assert not factory.ctx.extra["httpx_client"].is_closed
+
+
+def test_factory_set_leader(ctx, mock_healthcheck, mocked_ping):
+    uri = Uri.create("http://test:test@localhost/")
+    uri.servers = ["http://localhost:8000"]
+    factory = AdaptersFactory(ctx, uri)
+    leader = mocked_ping["current_nodes"][0]
+    leader_url = f"{leader['protocol']}://{leader['host']}:{leader['port']}"
+    assert str(factory.ctx.extra["httpx_client"].base_url) == leader_url
+    collection_adapter = factory.get_collection_adapter()
+    assert leader_url in collection_adapter.collections_resource.raw_url
