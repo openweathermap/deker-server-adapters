@@ -81,7 +81,10 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         :param id_: ID of node
         """
-        hosts = self.ctx.extra["nodes_mapping"][id_]  # type: ignore[attr-defined]
+        mapping_id_to_url = self.ctx.extra.get("nodes_mapping")
+        if mapping_id_to_url is None:
+            raise AttributeError("Attempt to use cluster logic in single server mode")
+        hosts = mapping_id_to_url[id_]
         return choice(hosts)
 
     def get_node(self, array: BaseArray) -> str:
