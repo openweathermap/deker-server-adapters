@@ -1,4 +1,3 @@
-from collections import defaultdict
 from json import JSONDecodeError
 from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
@@ -13,7 +12,7 @@ from deker_server_adapters.consts import STATUS_OK
 from deker_server_adapters.errors import DekerClusterError, DekerServerError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import get_api_version, make_request
+from deker_server_adapters.utils import get_api_version, get_leader_and_nodes_mapping, make_request
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -51,7 +50,10 @@ class AdaptersFactory(BaseAdaptersFactory):
             executor=ctx.executor,
             is_closed=ctx.is_closed,
         )
+
         self.httpx_client = HttpxClient(**kwargs)
+        # We have to keep reference to ctx, to be able to set new configuration
+        self.httpx_client.ctx = copied_ctx
         copied_ctx.extra["httpx_client"] = self.httpx_client
 
         # Cluster config
@@ -159,21 +161,7 @@ class AdaptersFactory(BaseAdaptersFactory):
         :param cluster_config: Custer config json from server
         :param ctx: App cotext (Deker CTX)
         """
-        # IDs used in hash ring
-        ids = []
-        # Mapping from ID to host
-        id_to_host_mapping = defaultdict(list)
-        leader_node = None
-        nodes = []
-
-        # Fill Ids and Mappings
-        for node in cluster_config["current_nodes"]:
-            url = f"{node['protocol']}://{node['host']}:{node['port']}"
-            nodes.append(url)
-            ids.append(node["id"])
-            id_to_host_mapping[node["id"]].append(url)
-            if node["id"] == cluster_config["leader_id"]:
-                leader_node = url
+        leader_node, ids, id_to_host_mapping, nodes = get_leader_and_nodes_mapping(cluster_config)
 
         if leader_node is None:
             raise DekerServerError(None, f"Leader node cannot be setted {cluster_config=}")
@@ -197,3 +185,4 @@ class AdaptersFactory(BaseAdaptersFactory):
 
         # Set Httpx client based on cluster config
         self.httpx_client.base_url = ctx.extra["leader_node"].raw_url
+        self.httpx_client.cluster_mode = True

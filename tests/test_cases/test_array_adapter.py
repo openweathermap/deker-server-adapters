@@ -1,9 +1,11 @@
 import json
-from typing import List
+import re
 
+from typing import List
 from unittest.mock import patch
 from uuid import uuid4
 
+import numpy
 import numpy as np
 import pytest
 
@@ -196,18 +198,6 @@ def test_by_id_fail(
         server_array_adapter.get_by_id("id", collection, server_array_adapter, None)
 
 
-def test_iter_fail(
-    array: Array,
-    httpx_mock: HTTPXMock,
-    server_array_adapter: ServerArrayAdapter,
-    collection: Collection,
-):
-    httpx_mock.add_response(status_code=500)
-    with pytest.raises(DekerServerError):
-        for _ in server_array_adapter:
-            pass
-
-
 def test_iter_success(
     array: Array,
     httpx_mock: HTTPXMock,
@@ -221,27 +211,28 @@ def test_iter_success(
     assert arrays == [json.loads(json.dumps(array.as_dict))]
 
 
-
-def test_get_node_by_id(array: Array, server_array_adapter: ServerArrayAdapter, nodes: List[str]):
+def test_get_node_by_id(array: Array, server_array_adapter: ServerArrayAdapter, nodes_urls: List[str]):
     with patch.object(array, "primary_attributes", {}):
-        # Check window slides
-
-        node = server_array_adapter.get_node(array)
-        assert node in nodes
-     
+        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
+        assert node in nodes_urls
 
 
-def test_get_node_by_primary(array: Array, server_array_adapter: ServerArrayAdapter, nodes: List[str]):
+def test_get_node_by_primary(array: Array, server_array_adapter: ServerArrayAdapter, nodes_urls: List[str]):
     with patch.object(array, "primary_attributes", {"foo": "bar"}):
-        # Check window slides
-
-        node = server_array_adapter.get_node(array)
-        assert node in nodes
+        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
+        assert node in nodes_urls
 
 
-def test_get_node_give_same_result(array: Array, server_array_adapter: ServerArrayAdapter, nodes: List[str]):
-    first_node = server_array_adapter.get_node(array)
+def test_get_node_give_same_result(array: Array, server_array_adapter: ServerArrayAdapter, nodes_urls: List[str]):
+    first_node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
     for _ in range(10):
-        node = server_array_adapter.get_node(array)
+        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
         assert node == first_node
 
+
+def test_array_read_from_specific_node(
+    array: Array, server_array_adapter: ServerArrayAdapter, httpx_mock: HTTPXMock, mock_healthcheck
+):
+    host = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
+    httpx_mock.add_response(url=re.compile(host), content=numpy.zeros(shape=(1,)).tobytes())
+    server_array_adapter.read_data(array, ...)

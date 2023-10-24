@@ -1,16 +1,21 @@
 from typing import Any, Type
 
+from deker.ctx import CTX
 from deker.errors import DekerMemoryError
+from deker.uri import Uri
 from httpx import Client, Response
 
 from deker_server_adapters.consts import (
     CONTENT_TOO_LARGE,
     EXCEPTION_CLASS_PARAM_NAME,
+    NON_LEADER_WRITE,
     RATE_ERROR_MESSAGE,
     TOO_LARGE_ERROR_MESSAGE,
     TOO_MANY_REQUESTS,
 )
 from deker_server_adapters.errors import DekerBaseRateLimitError, DekerDataPointsLimitError, DekerRateLimitError
+from deker_server_adapters.hash_ring import HashRing
+from deker_server_adapters.utils import get_leader_and_nodes_mapping
 
 
 def rate_limit_err(response: Response, message: str, class_: Type[DekerBaseRateLimitError]) -> None:
@@ -37,6 +42,9 @@ def rate_limit_err(response: Response, message: str, class_: Type[DekerBaseRateL
 class HttpxClient(Client):
     """Wrapper around HttpxClient."""
 
+    ctx: CTX
+    cluster_mode: bool = False
+
     def request(self, *args: Any, **kwargs: Any) -> Response:
         """Override httpx method to handle rate errors.
 
@@ -51,5 +59,17 @@ class HttpxClient(Client):
             and response.json().get(EXCEPTION_CLASS_PARAM_NAME) != DekerMemoryError.__name__
         ):
             rate_limit_err(response=response, message=TOO_LARGE_ERROR_MESSAGE, class_=DekerDataPointsLimitError)
+
+        if response.status_code == NON_LEADER_WRITE:
+            leader_node, ids, id_to_host_mapping, nodes = get_leader_and_nodes_mapping(response.json())
+
+            self.ctx.extra["leader_node"] = Uri.create(leader_node)
+            self.ctx.extra["nodes_mapping"] = id_to_host_mapping
+            self.ctx.extra["hash_ring"] = HashRing(ids)
+            self.ctx.extra["nodes"] = nodes
+
+            self.base_url = self.ctx.extra["leader_node"].raw_url
+
+            return super().request(*args, **kwargs)
 
         return response

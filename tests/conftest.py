@@ -47,8 +47,30 @@ def mock_healthcheck(httpx_mock: HTTPXMock, mocked_ping):
 
 
 @pytest.fixture(scope="session")
-def nodes() -> List[str]:
-    return ["http://localhost:8000", "http://localhost:8001"]
+def nodes() -> List[Dict]:
+    return [
+        {
+            "id": "8381202B-8C95-487A-B9B5-0B527056804E",
+            "host": "localhost",
+            "port": 8000,
+            "protocol": "http",
+        },
+        {
+            "id": "8381202B-8C95-487A-B9B5-0B5270568040",
+            "host": "localhost",
+            "port": 8012,
+            "protocol": "http",
+        },
+    ]
+
+
+@pytest.fixture()
+def nodes_urls(nodes) -> List[str]:
+    urls = []
+    for node in nodes:
+        url = f"{node['protocol']}://{node['host']}:{node['port']}"
+        urls.append(url)
+    return urls
 
 
 @pytest.fixture(scope="session")
@@ -74,9 +96,15 @@ def ctx(session_mocker: MockerFixture, collection_path: Uri, nodes: List[str]) -
     )
     with HttpxClient(base_url="http://localhost:8000/") as client:
         ctx.extra["httpx_client"] = client
-        ctx.extra["hash_ring"] = HashRing(nodes)
+        ctx.extra["hash_ring"] = HashRing([node["id"] for node in nodes])
         ctx.extra["leader_node"] = Uri.create("http://localhost:8000")
+        ctx.extra["nodes_mapping"] = {
+            "8381202B-8C95-487A-B9B5-0B527056804E": ["http://localhost:8000"],
+            "8381202B-8C95-487A-B9B5-0B5270568040": ["http://localhost:8012"],
+        }
         ctx.extra["nodes"] = ["http://localhost:8000"]
+        client.ctx = ctx
+        client.cluster_mode = True
         yield ctx
 
 

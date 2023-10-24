@@ -1,3 +1,4 @@
+from collections import defaultdict
 from logging import getLogger
 from random import randint
 from typing import Dict, List, Optional, Set, Tuple, Union
@@ -65,3 +66,27 @@ def get_api_version(ctx: "CTX") -> str:
     :param ctx: Context
     """
     return ctx.extra.get("API_VERSION", "v1")
+
+
+def get_leader_and_nodes_mapping(cluster_config: Dict) -> Tuple[str, List, Dict, List]:
+    """Figure out leader from cluster config.
+
+    :param cluster_config: Cluster configuration
+    """
+    # IDs used in hash ring
+    ids = []
+    # Mapping from ID to host
+    id_to_host_mapping = defaultdict(list)
+    leader_node = None
+    nodes = []
+
+    # Fill Ids and Mappings
+    for node in cluster_config["current_nodes"]:
+        url = f"{node['protocol']}://{node['host']}:{node['port']}"
+        nodes.append(url)
+        ids.append(node["id"])
+        id_to_host_mapping[node["id"]].append(url)
+        if node["id"] == cluster_config["leader_id"]:
+            leader_node = url
+
+    return leader_node, ids, id_to_host_mapping, nodes
