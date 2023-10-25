@@ -1,17 +1,18 @@
-import traceback
-
-from typing import TYPE_CHECKING, Any, Type
+from json import JSONDecodeError
+from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
 from deker.ABC.base_factory import BaseAdaptersFactory
 from deker.ctx import CTX
 from deker.uri import Uri
+from httpx import Response
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.consts import STATUS_OK
-from deker_server_adapters.errors import DekerServerError
+from deker_server_adapters.errors import DekerClusterError, DekerServerError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
+from deker_server_adapters.utils import get_api_version, get_leader_and_nodes_mapping, make_request
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -40,9 +41,6 @@ class AdaptersFactory(BaseAdaptersFactory):
         # update values from context kwargs
         kwargs.update(ctx.extra.get("httpx_conf", {}))
 
-        # Instantiate an httpx client
-        self.httpx_client = HttpxClient(**kwargs)
-
         # We have to copy ctx to create new instance of extra
         # so client would be different for every factory
         copied_ctx = CTX(
@@ -53,8 +51,19 @@ class AdaptersFactory(BaseAdaptersFactory):
             is_closed=ctx.is_closed,
         )
 
+        self.httpx_client = HttpxClient(**kwargs)
+        # We have to keep reference to ctx, to be able to set new configuration
+        self.httpx_client.ctx = copied_ctx
         copied_ctx.extra["httpx_client"] = self.httpx_client
-        self.do_healthcheck(copied_ctx)
+
+        # Cluster config
+        if hasattr(uri, "servers") and uri.servers:
+            self.get_cluster_config_and_configure_context(copied_ctx)
+
+        # Single server
+        else:
+            self.do_healthcheck(ctx=copied_ctx, in_cluster=False)
+
         super().__init__(copied_ctx, uri)
 
     def close(self) -> None:
@@ -116,28 +125,64 @@ class AdaptersFactory(BaseAdaptersFactory):
         """
         return ServerCollectionAdapter(self.ctx)
 
-    def do_healthcheck(self, ctx: CTX) -> None:
+    def do_healthcheck(self, ctx: CTX, in_cluster: bool = False) -> Optional[Dict]:
         """Check if server is alive.
 
+        Fetches config as well.
         :param ctx: App context
+        :param in_cluster: If we are in cluster
         """
-        response = None
-        nodes = [*ctx.uri.servers]
-        while nodes and (response is None or response.status_code != STATUS_OK):
-            node = nodes.pop()
 
+        def check_response(response: Optional[Response], client: HttpxClient) -> None:
+            if response is None or response.status_code != STATUS_OK:
+                client.close()
+                raise DekerServerError(
+                    response,
+                    "Healthcheck failed. Deker client will be closed.",
+                )
+
+        url = f"{get_api_version(ctx)}/ping"
+
+        # If we do healthcheck in cluster
+        nodes = [*ctx.uri.servers] if in_cluster else [ctx.uri.raw_url]
+        response = make_request(url=url, nodes=nodes, client=self.httpx_client)
+        check_response(response=response, client=self.httpx_client)
+
+        if in_cluster:
             try:
-                response = self.httpx_client.get(f"{node}/v1/ping")
-            except Exception:
-                self.logger.error(f"Coudn't get response from {node}")  # noqa
-                traceback.print_exc()
-                continue
-        if response is None or response.status_code != STATUS_OK:
-            self.httpx_client.close()
-            raise DekerServerError(
-                response,
-                "Healthcheck failed. Deker client will be closed.",
-            )
+                config = response.json()  # type: ignore[union-attr]
+                return config
+            except JSONDecodeError:
+                raise DekerClusterError(response, "Server responded with empty config")
 
-        # set hash_ring based on list from the server
-        ctx.extra["hash_ring"] = HashRing(response.json()["servers"])
+    def __set_cluster_config(self, cluster_config: Dict, ctx: CTX) -> None:
+        """Set cluster config in the CTX.
+
+        :param cluster_config: Custer config json from server
+        :param ctx: App cotext (Deker CTX)
+        """
+        leader_node, ids, id_to_host_mapping, nodes = get_leader_and_nodes_mapping(cluster_config)
+
+        if leader_node is None:
+            raise DekerServerError(None, f"Leader node cannot be setted {cluster_config=}")
+
+        # Set variables in context
+        ctx.extra["leader_node"] = Uri.create(leader_node)
+        ctx.extra["nodes_mapping"] = id_to_host_mapping
+        ctx.extra["hash_ring"] = HashRing(ids)
+        ctx.extra["nodes"] = nodes
+
+    def get_cluster_config_and_configure_context(self, ctx: CTX) -> None:
+        """Get info from node and set config.
+
+        :param ctx: CTX where client and config will be injected
+        """
+        # Get Cluster config
+        cluster_config = self.do_healthcheck(ctx, in_cluster=True)
+
+        # Set cluster config
+        self.__set_cluster_config(cluster_config, ctx)  # type: ignore[arg-type]
+
+        # Set Httpx client based on cluster config
+        self.httpx_client.base_url = ctx.extra["leader_node"].raw_url
+        self.httpx_client.cluster_mode = True

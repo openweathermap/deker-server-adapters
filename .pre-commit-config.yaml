@@ -121,23 +121,12 @@ repos:
     hooks:
       - id: mypy
         name: mypy
-        files: ^app/
+        files: ^deker_server_adapters/
         always_run: false
         args: [
           --install-types,
           --non-interactive,
-          --no-strict-optional,
-          --ignore-missing-imports,
-          --scripts-are-modules,
-          --allow-redefinition,
-          --disallow-untyped-defs,
-          --no-implicit-optional,
-          --no-warn-no-return,
-          --warn-return-any,
-          --show-error-context,
-          --show-column-numbers,
-          --show-error-codes,
-          --no-color-output
+          --config-file=pyproject.toml
         ]
         stages:
           - commit

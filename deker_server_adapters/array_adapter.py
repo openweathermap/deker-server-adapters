@@ -4,11 +4,11 @@ from typing import TYPE_CHECKING, Type, Union
 
 from deker.ABC.base_adapters import BaseArrayAdapter, BaseStorageAdapter
 from deker.ctx import CTX
-from httpx import Client
 
 from deker_server_adapters.base import ServerArrayAdapterMixin
 from deker_server_adapters.consts import STATUS_OK, ArrayType
 from deker_server_adapters.errors import DekerServerError
+from deker_server_adapters.httpx_client import HttpxClient
 
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 class ServerArrayAdapter(ServerArrayAdapterMixin, BaseArrayAdapter):
     """Server realization for array adapter."""
 
-    client: Client
+    client: HttpxClient
     type = ArrayType.array
     executor: ThreadPoolExecutor
 

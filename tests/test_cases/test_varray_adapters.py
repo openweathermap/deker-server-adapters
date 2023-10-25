@@ -1,8 +1,9 @@
 import json
+import re
 
-from uuid import uuid4
 from typing import List
 from unittest.mock import patch
+from uuid import uuid4
 
 import numpy as np
 import pytest
@@ -137,21 +138,20 @@ def test_clear_deker_timeout(varray: VArray, httpx_mock: HTTPXMock, server_varra
         server_varray_adapter.clear(varray, np.index_exp[:])
 
 
-def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes: List[str]):
+def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: List[str]):
     with patch.object(varray, "primary_attributes", {}):
         # Check window slides
 
-        node = server_varray_adapter.get_node(varray)
-        assert node in nodes
-     
+        node = server_varray_adapter.get_host_url(server_varray_adapter.get_node(varray))
+        assert node in nodes_urls
 
 
-def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes: List[str]):
+def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: List[str]):
     with patch.object(varray, "primary_attributes", {"foo": "bar"}):
         # Check window slides
 
-        node = server_varray_adapter.get_node(varray)
-        assert node in nodes
+        node = server_varray_adapter.get_host_url(server_varray_adapter.get_node(varray))
+        assert node in nodes_urls
 
 
 def test_get_node_give_same_result(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes: List[str]):
@@ -159,3 +159,16 @@ def test_get_node_give_same_result(varray: VArray, server_varray_adapter: Server
     for _ in range(10):
         node = server_varray_adapter.get_node(varray)
         assert node == first_node
+
+
+def test_iter_success(
+    varray: VArray,
+    httpx_mock: HTTPXMock,
+    server_varray_adapter: ServerVarrayAdapter,
+):
+    httpx_mock.add_response(url=re.compile(server_varray_adapter.collection_path.raw_url), json=[varray.as_dict])
+    arrays = []
+    for array_ in server_varray_adapter:
+        arrays.append(array_)
+
+    assert arrays == [json.loads(json.dumps(varray.as_dict))]

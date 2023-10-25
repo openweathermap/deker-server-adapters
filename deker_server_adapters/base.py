@@ -1,27 +1,35 @@
+import logging
+
 from collections.abc import Generator
 from datetime import datetime
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Optional, Union
+from random import choice
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import numpy as np
 
 from deker import Array, Collection, VArray
 from deker.ABC.base_array import BaseArray
+from deker.ctx import CTX
 from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Numeric, Slice
 from deker.uri import Uri
 from deker_tools.slices import slice_converter
-from httpx import Client, TimeoutException
+from httpx import Response, TimeoutException
 from numpy import ndarray
 
 from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
 from deker_server_adapters.hash_ring import HashRing
+from deker_server_adapters.httpx_client import HttpxClient
+from deker_server_adapters.utils import make_request
 
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.ABC.base_schemas import BaseArraysSchema
+
+logger = logging.getLogger(__name__)
 
 
 def create_array_from_meta(
@@ -39,11 +47,13 @@ def create_array_from_meta(
     return class_._create_from_meta(*args, **kwargs)
 
 
-class ServerAdapterMixin:
+class BaseServerAdapterMixin:
     """Mixin for network communication."""
 
+    ctx: CTX
+
     @property
-    def client(self) -> Client:
+    def client(self) -> HttpxClient:
         """Return client singleton."""
         # We don't need to worry about passing args here, cause it's a singleton.
         return self.ctx.extra["httpx_client"]  # type: ignore[attr-defined]
@@ -51,7 +61,37 @@ class ServerAdapterMixin:
     @property
     def hash_ring(self) -> HashRing:
         """Return HashRing instance."""
-        return self.ctx.extra["hash_ring"]  # type: ignore[attr-defined]
+        hash_ring = self.ctx.extra.get("hash_ring")
+        if not hash_ring:
+            raise AttributeError("Attempt to use cluster logic in single server mode")
+        return hash_ring  # type: ignore[attr-defined]
+
+    @property
+    def nodes(self) -> List[str]:
+        """Return list of nodes."""
+        nodes = self.ctx.extra["nodes"]  # type: ignore[attr-defined]
+        if not nodes:
+            raise AttributeError("Attempt to use cluster logic in single server mode")
+        return nodes
+
+
+class ServerArrayAdapterMixin(BaseServerAdapterMixin):
+    """Mixin with server logic for adapters."""
+
+    type: ArrayType
+    collection_path: Uri
+
+    def get_host_url(self, id_: Optional[str]) -> str:
+        """Get random node with given id.
+
+        :param id_: ID of node
+        """
+        assert id_, "Node ID is None"
+        mapping_id_to_url = self.ctx.extra.get("nodes_mapping")
+        if mapping_id_to_url is None:
+            raise AttributeError("Attempt to use cluster logic in single server mode")
+        hosts = mapping_id_to_url[id_]
+        return choice(hosts)
 
     def get_node(self, array: BaseArray) -> str:
         """Get hash for primary attributes or id.
@@ -61,22 +101,22 @@ class ServerAdapterMixin:
         if not array.primary_attributes:
             return self.hash_ring.get_node(array.id) or ""
 
+        return self.get_node_by_primary_attrs(array.primary_attributes)
+
+    def get_node_by_primary_attrs(self, primary_attributes: Dict) -> str:
+        """Get hash by primary attributes.
+
+        :param primary_attributes: Dict of primary attributes
+        """
         attrs_to_join = []
-        for attr in array.primary_attributes:
-            attribute = array.primary_attributes[attr]
+        for attr in primary_attributes:
+            attribute = primary_attributes[attr]
             if attr == "v_position":
                 value = "-".join(str(el) for el in attribute)
             else:
                 value = attribute.isoformat() if isinstance(attribute, datetime) else str(attribute)
             attrs_to_join.append(value)
         return self.hash_ring.get_node("/".join(attrs_to_join)) or ""
-
-
-class ServerArrayAdapterMixin(ServerAdapterMixin):
-    """Mixin with server logic for adapters."""
-
-    type: ArrayType
-    collection_path: Uri
 
     def create(self, array: Union[dict, "BaseArray"]) -> BaseArray:
         """Create array on server.
@@ -126,18 +166,15 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :param array: Instance of (v)array
         :return:
         """
-        nodes = [*self.hash_ring.nodes]
-        response = self.client.get(
-            f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
-        )
-        # If node is desync or unaviliable, try another node
-        while response.status_code != STATUS_OK and nodes:
-            node = nodes.pop()
-            response = self.client.get(
-                f"{node}/{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
-            )
+        url = f"/{self.type.name}/by-id/{array.id}"
 
-        if response.status_code != STATUS_OK:
+        # Only Varray can be located on different nodes yet.
+        if self.type == ArrayType.varray:
+            response = make_request(url=url, nodes=self.nodes, client=self.client)
+        else:
+            response = self.client.get(f"{self.collection_path.raw_url}{url}")
+
+        if response is None or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't fetch an array")
 
         return response.json()
@@ -152,6 +189,7 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :param array: Instance of (v)array
         :param attributes: dict with attributes to update
         """
+        # Writing is always on leader node
         response = self.client.put(
             f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
             json={"custom_attributes": convert_datetime_attrs_to_iso(attributes)},
@@ -168,6 +206,13 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         if resource.status_code != STATUS_OK:
             raise DekerServerError(resource, f"Couldn't delete the {self.type.name}")
 
+    def __merge_node_and_collection_path(self, node: str) -> str:
+        """Create new url from collection_path path and node host.
+
+        :param node: Node to merge with
+        """
+        return f"{node.rstrip('/')}{self.collection_path.path}"
+
     def read_data(
         self,
         array: "BaseArray",
@@ -180,10 +225,15 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :return:
         """
         bounds_ = slice_converter[bounds]
-        node = self.get_node(array)
+        if self.client.cluster_mode:
+            node_id = self.get_node(array)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+        else:
+            path = self.collection_path.raw_url.rstrip("/")
         try:
             response = self.client.get(
-                f"{node}/v1/collection/{array.collection}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data",
+                f"{path}/" f"{self.type.name}/" f"by-id/" f"{array.id}/" f"subset/" f"{bounds_}/" f"data",
                 headers={"Accept": "application/octet-stream"},
             )
         except TimeoutException:
@@ -213,13 +263,19 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :return:
         """
         bounds = slice_converter[bounds]
-        node = self.get_node(array)
+
+        # We write (v)array through the node it belongs in cluster
+        if self.client.cluster_mode:
+            node_id = self.get_node(array)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+        else:
+            path = self.collection_path.raw_url.rstrip("/")
         try:
             if hasattr(data, "tolist"):
                 data = data.tolist()
-
             response = self.client.put(
-                f"{node}/v1/collection/{array.collection}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data",
+                f"{path}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data",
                 json=data,
             )
 
@@ -250,6 +306,19 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         """
         return False
 
+    def __create_array_from_response(self, response: Response, kwargs: Dict) -> Optional[BaseArray]:
+        """Create array from json meta.
+
+        :param response: response from server
+        :param kwargs: Kwargs for array creation
+        """
+        if response.status_code == NOT_FOUND:
+            return None
+        if response.status_code == STATUS_OK:
+            return create_array_from_meta(**{**kwargs, "meta": response.json()})
+
+        raise DekerServerError(response, "Couldn't fetch an array")
+
     def get_by_primary_attributes(
         self,
         primary_attributes: dict,
@@ -278,20 +347,28 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
                 attrs.append(str(primary_attributes[attr.name]))  # type: ignore[index]
 
         primary_path = "/".join(attrs)
+
+        # We read an Array through the node it belongs
+        if self.client.cluster_mode:
+            node_id = self.get_node_by_primary_attrs(primary_attributes)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+        else:
+            path = self.collection_path.raw_url.rstrip("/")
+
         response = self.client.get(
-            f"{self.collection_path.raw_url}/{self.type.name}/by-primary/{primary_path}",
+            f"{path}/{self.type.name}/by-primary/{primary_path}",
         )
-        if response.status_code == NOT_FOUND:
-            return None
-        if response.status_code == STATUS_OK:
-            return create_array_from_meta(
+
+        return self.__create_array_from_response(
+            response,
+            dict(
                 type=self.type,
                 collection=collection,
-                meta=response.json(),
                 array_adapter=array_adapter,
                 varray_adapter=varray_adapter,
-            )
-        return None
+            ),
+        )
 
     def get_by_id(
         self,
@@ -308,25 +385,39 @@ class ServerArrayAdapterMixin(ServerAdapterMixin):
         :param varray_adapter: Varray adapter
         :return:
         """
+        if self.client.cluster_mode:
+            node_id = self.hash_ring.get_node(id_)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+        else:
+            path = self.collection_path.raw_url.rstrip("/")
+
         response = self.client.get(
-            f"{self.collection_path.raw_url}/{self.type.name}/by-id/{id_}",
+            f"{path}/{self.type.name}/by-id/{id_}",
         )
-        if response.status_code == NOT_FOUND:
-            return None
-        if response.status_code == STATUS_OK:
-            return create_array_from_meta(
+
+        return self.__create_array_from_response(
+            response,
+            dict(
                 type=self.type,
                 collection=collection,
-                meta=response.json(),
                 array_adapter=array_adapter,
                 varray_adapter=varray_adapter,
-            )
-
-        raise DekerServerError(response, "Couldn't fetch an array")
+            ),
+        )
 
     def __iter__(self) -> Generator["ArrayMeta", None, None]:
-        response = self.client.get(f"{self.collection_path.raw_url}/{self.type.name}s")
-        if response.status_code != STATUS_OK:
-            raise DekerServerError(response, "Couldn't get list of arrays")
+        urls = [f"{self.collection_path.raw_url}/{self.type.name}s"]
+        if self.type == ArrayType.array:
+            urls = [f"{self.__merge_node_and_collection_path(node)}/{self.type.name}s" for node in self.nodes]
 
-        yield from response.json()
+        for url in urls:
+            response = self.client.get(url)
+
+            if response.status_code != STATUS_OK:
+                if self.type == ArrayType.array:
+                    logger.warning(f"Couldn't fetch arrays from node: {url}")
+                else:
+                    raise DekerServerError(response, "Couldn't get list of arrays")
+
+            yield from response.json()

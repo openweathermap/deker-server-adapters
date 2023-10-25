@@ -2,7 +2,7 @@ import hashlib
 import math
 
 from bisect import bisect
-from typing import Callable, Generator, List, Optional, Sequence
+from typing import Callable, Generator, List, Optional, Set, Tuple, Union
 
 
 md5_constructor = hashlib.md5
@@ -11,23 +11,13 @@ md5_constructor = hashlib.md5
 class HashRing:
     """Class for hash ring."""
 
-    def __init__(self, nodes: Sequence, weights: Optional[dict] = None):
-        """Generare instace of hash ring with given nodes.
+    def _hash_val(self, b_key: List[int], entry_fn: Callable) -> int:
+        return (b_key[entry_fn(3)] << 24) | (b_key[entry_fn(2)] << 16) | (b_key[entry_fn(1)] << 8) | b_key[entry_fn(0)]
 
-        :param nodes: is a list of objects that have a proper __str__ representation.
-        :param weights: is dictionary that sets weights to the nodes.  The default
-        weight is that all nodes are equal.
-        """
-        self.ring = {}  # type: ignore[var-annotated]
-        self._sorted_keys = []  # type: ignore[var-annotated]
-
-        self.nodes = nodes
-
-        if not weights:
-            weights = {}  # type: ignore[var-annotated]
-        self.weights = weights
-
-        self._generate_circle()
+    def _hash_digest(self, key: str) -> List[int]:
+        m = md5_constructor()
+        m.update(key.encode())
+        return [int(str(letter)) for letter in m.digest()]  # , m.digest()))
 
     def _generate_circle(self) -> None:
         """Generate the circle."""
@@ -52,6 +42,24 @@ class HashRing:
                     self._sorted_keys.append(key)
 
         self._sorted_keys.sort()
+
+    def __init__(self, nodes: Union[List, Tuple, Set], weights: Optional[dict] = None):
+        """Generare instace of hash ring with given nodes.
+
+        :param nodes: is a list of objects that have a proper __str__ representation.
+        :param weights: is dictionary that sets weights to the nodes.  The default
+        weight is that all nodes are equal.
+        """
+        self.ring = {}  # type: ignore[var-annotated]
+        self._sorted_keys = []  # type: ignore[var-annotated]
+
+        self.nodes = nodes
+
+        if not weights:
+            weights = {}  # type: ignore[var-annotated]
+        self.weights = weights
+
+        self._generate_circle()
 
     def get_node(self, string_key: str) -> Optional[str]:
         """Return hash ring by given a string key a corresponding node.
@@ -129,11 +137,3 @@ class HashRing:
         """
         b_key = self._hash_digest(key)
         return self._hash_val(b_key, lambda x: x)
-
-    def _hash_val(self, b_key: List[int], entry_fn: Callable) -> int:
-        return (b_key[entry_fn(3)] << 24) | (b_key[entry_fn(2)] << 16) | (b_key[entry_fn(1)] << 8) | b_key[entry_fn(0)]
-
-    def _hash_digest(self, key: str) -> List[int]:
-        m = md5_constructor()
-        m.update(key.encode())
-        return [int(str(letter)) for letter in m.digest()]  # , m.digest()))
