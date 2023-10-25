@@ -118,14 +118,29 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             attrs_to_join.append(value)
         return self.hash_ring.get_node("/".join(attrs_to_join)) or ""
 
+    def __merge_node_and_collection_path(self, node: str) -> str:
+        """Create new url from collection_path path and node host.
+
+        :param node: Node to merge with
+        """
+        return f"{node.rstrip('/')}{self.collection_path.path}"
+
     def create(self, array: Union[dict, "BaseArray"]) -> BaseArray:
         """Create array on server.
 
         :param array: Array instance
         :return:
         """
+        path = self.collection_path.raw_url.rstrip("/")
+
+        if self.type == ArrayType.array:
+            if self.client.cluster_mode:
+                node_id = self.get_node(array)
+                node = self.get_host_url(node_id)
+                path = self.__merge_node_and_collection_path(node)
+
         response = self.client.post(
-            f"{self.collection_path.raw_url}/{self.type.name}s",
+            f"{path}/{self.type.name}s",
             json={
                 "primary_attributes": convert_datetime_attrs_to_iso(
                     array["primary_attributes"],
@@ -205,13 +220,6 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         resource = self.client.delete(f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}")
         if resource.status_code != STATUS_OK:
             raise DekerServerError(resource, f"Couldn't delete the {self.type.name}")
-
-    def __merge_node_and_collection_path(self, node: str) -> str:
-        """Create new url from collection_path path and node host.
-
-        :param node: Node to merge with
-        """
-        return f"{node.rstrip('/')}{self.collection_path.path}"
 
     def read_data(
         self,
@@ -419,5 +427,5 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                     logger.warning(f"Couldn't fetch arrays from node: {url}")
                 else:
                     raise DekerServerError(response, "Couldn't get list of arrays")
-
-            yield from response.json()
+            else:
+                yield from response.json()
