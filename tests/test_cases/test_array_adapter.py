@@ -25,7 +25,10 @@ def test_create_success(
 ):
     instance_id = str(uuid4())
     httpx_mock.add_response(status_code=201, json={"id": instance_id})
-    array = server_array_adapter.create({**array.as_dict, "adapter": server_array_adapter, "collection": collection})
+    data = array.as_dict
+    array = server_array_adapter.create(
+        {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
+    )
     assert array
     assert array.id == instance_id
 
@@ -37,8 +40,11 @@ def test_create_fails_no_id(
     collection: Collection,
 ):
     httpx_mock.add_response(status_code=201)
+    data = array.as_dict
     with pytest.raises(DekerServerError):
-        server_array_adapter.create({**array.as_dict, "adapter": server_array_adapter, "collection": collection})
+        server_array_adapter.create(
+            {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
+        )
 
 
 @pytest.mark.parametrize(
@@ -68,6 +74,7 @@ def test_collection_raises_500(
     with pytest.raises(DekerServerError):
         if method == "create":
             array = array.as_dict
+            array["id_"] = array["id"]
         call_args = (array, *args)
         getattr(server_array_adapter, method)(*call_args)
 

@@ -136,7 +136,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         if self.type == ArrayType.array:
             if self.client.cluster_mode:
                 if isinstance(array, dict):
-                    node_id = self.get_node_by_primary_attrs(array)
+                    if not array.get("primary_attributes"):
+                        node_id = self.hash_ring.get_node(array.get("id_"))  # type: ignore[arg-type]
+                    else:
+                        node_id = self.get_node_by_primary_attrs(
+                            array.get("primary_attributes")  # type: ignore[arg-type]
+                        )
                 else:
                     node_id = self.get_node(array)
                 node = self.get_host_url(node_id)
