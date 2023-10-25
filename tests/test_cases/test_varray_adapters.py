@@ -1,4 +1,5 @@
 import json
+import re
 
 from typing import List
 from unittest.mock import patch
@@ -158,3 +159,16 @@ def test_get_node_give_same_result(varray: VArray, server_varray_adapter: Server
     for _ in range(10):
         node = server_varray_adapter.get_node(varray)
         assert node == first_node
+
+
+def test_iter_success(
+    varray: VArray,
+    httpx_mock: HTTPXMock,
+    server_varray_adapter: ServerVarrayAdapter,
+):
+    httpx_mock.add_response(url=re.compile(server_varray_adapter.collection_path.raw_url), json=[varray.as_dict])
+    arrays = []
+    for array_ in server_varray_adapter:
+        arrays.append(array_)
+
+    assert arrays == [json.loads(json.dumps(varray.as_dict))]

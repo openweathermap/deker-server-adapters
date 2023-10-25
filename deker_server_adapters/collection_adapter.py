@@ -4,18 +4,18 @@ from deker import Collection
 from deker.ABC import BaseCollectionAdapter
 from deker.errors import DekerCollectionAlreadyExistsError, DekerCollectionNotExistsError
 from deker.uri import Uri
-from httpx import Client
 
 from deker_server_adapters.base import BaseServerAdapterMixin
 from deker_server_adapters.consts import BAD_REQUEST, COLLECTION_NAME_PARAM, NOT_FOUND, STATUS_CREATED, STATUS_OK
 from deker_server_adapters.errors import DekerServerError
+from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils import get_api_version, make_request
 
 
 class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
     """Server realization for collection adapter."""
 
-    client: Client
+    client: HttpxClient
     metadata_version = "0.2"
 
     @property

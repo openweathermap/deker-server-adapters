@@ -81,11 +81,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
     type: ArrayType
     collection_path: Uri
 
-    def get_host_url(self, id_: str) -> str:
+    def get_host_url(self, id_: Optional[str]) -> str:
         """Get random node with given id.
 
         :param id_: ID of node
         """
+        assert id_, "Node ID is None"
         mapping_id_to_url = self.ctx.extra.get("nodes_mapping")
         if mapping_id_to_url is None:
             raise AttributeError("Attempt to use cluster logic in single server mode")

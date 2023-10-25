@@ -68,7 +68,7 @@ def get_api_version(ctx: "CTX") -> str:
     return ctx.extra.get("API_VERSION", "v1")
 
 
-def get_leader_and_nodes_mapping(cluster_config: Dict) -> Tuple[str, List, Dict, List]:
+def get_leader_and_nodes_mapping(cluster_config: Dict) -> Tuple[Optional[str], List, defaultdict, List]:
     """Figure out leader from cluster config.
 
     :param cluster_config: Cluster configuration
