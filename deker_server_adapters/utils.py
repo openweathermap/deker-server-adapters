@@ -65,7 +65,7 @@ def get_api_version(ctx: "CTX") -> str:
     We have it as separate function to incapsulate logic.
     :param ctx: Context
     """
-    return ctx.extra.get("API_VERSION", "v1")
+    return "v1"
 
 
 def get_leader_and_nodes_mapping(cluster_config: Dict) -> Tuple[Optional[str], List, defaultdict, List]:

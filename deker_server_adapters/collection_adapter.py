@@ -66,8 +66,8 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
 
         :param name: Name of collection
         """
-        url = f"/{self.collection_url_prefix}/{name}"
-        response = make_request(url=url, nodes=self.hash_ring.nodes, client=self.client)
+        url = f"{self.collection_url_prefix}/{name}"
+        response = make_request(url=url, nodes=self.nodes, client=self.client)
 
         if response and response.status_code == STATUS_OK:
             return response.json()
