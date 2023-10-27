@@ -11,8 +11,10 @@ import numpy as np
 from deker import Array, Collection, VArray
 from deker.ABC.base_array import BaseArray
 from deker.ctx import CTX
+from deker.tools.array import generate_uid
 from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Numeric, Slice
+from deker.types.private.enums import ArrayType as ArrayStringType
 from deker.uri import Uri
 from deker_tools.slices import slice_converter
 from httpx import Response, TimeoutException
@@ -131,33 +133,35 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param array: Array instance
         :return:
         """
+        kwargs = {
+            "primary_attributes": convert_datetime_attrs_to_iso(
+                array["primary_attributes"],
+            ),
+            "custom_attributes": convert_datetime_attrs_to_iso(
+                array["custom_attributes"],
+            ),
+        }
+
+        if isinstance(array, dict):
+            array_type = ArrayStringType[self.type.name]
+            kwargs["id_"] = array.get("id_") or (self.client.cluster_mode and generate_uid(array_type) or None)
+
         path = self.collection_path.raw_url.rstrip("/")
 
-        if self.type == ArrayType.array:
-            if self.client.cluster_mode:
-                if isinstance(array, dict):
-                    if not array.get("primary_attributes"):
-                        node_id = self.hash_ring.get_node(array.get("id_"))  # type: ignore[arg-type]
-                    else:
-                        node_id = self.get_node_by_primary_attrs(
-                            array.get("primary_attributes")  # type: ignore[arg-type]
-                        )
+        if self.type == ArrayType.array and self.client.cluster_mode:
+            if isinstance(array, dict):
+                if array.get("primary_attributes"):
+                    node_id = self.get_node_by_primary_attrs(array.get("primary_attributes"))  # type: ignore[arg-type]
                 else:
-                    node_id = self.get_node(array)
-                node = self.get_host_url(node_id)
-                path = self.__merge_node_and_collection_path(node)
+                    node_id = self.hash_ring.get_node(kwargs.get("id_"))  # type: ignore[arg-type, assignment]
 
-        response = self.client.post(
-            f"{path}/{self.type.name}s",
-            json={
-                "primary_attributes": convert_datetime_attrs_to_iso(
-                    array["primary_attributes"],
-                ),
-                "custom_attributes": convert_datetime_attrs_to_iso(
-                    array["custom_attributes"],
-                ),
-            },
-        )
+            else:
+                node_id = self.get_node(array)
+
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+
+        response = self.client.post(f"{path}/{self.type.name}s", json=kwargs)
         if response.status_code != STATUS_CREATED:
             raise DekerServerError(response, "Couldn't create an array")
 

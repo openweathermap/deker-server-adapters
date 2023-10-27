@@ -422,18 +422,17 @@ files = [
 
 [[package]]
 name = "deker"
-version = "1.1.0"
+version = "1.1.2b2"
 description = "Multidimensional arrays storage engine"
 optional = false
 python-versions = ">=3.9,<4.0"
 files = [
-    {file = "deker-1.1.0.tar.gz", hash = "sha256:a92ecd4168ab98bf82edb1e4ad07c72b7527806c8e74fab51cfd9a888da567b3"},
+    {file = "deker-1.1.2b2.tar.gz", hash = "sha256:bd2597262aae4a46d6d362edea3ce0050d9f7b94c99f7eb6d4358a0079ff4a6b"},
 ]
 
 [package.dependencies]
 attrs = ">=23.1.0,<24.0.0"
 deker-local-adapters = "1.0.1"
-numpy = ">=1.18,<2.0"
 psutil = ">=5.9.5,<6.0.0"
 tqdm = ">=4.64.1,<5.0.0"
 typing-extensions = ">=4.4.0,<5.0.0"
@@ -443,6 +442,11 @@ all = ["deker-server-adapters (>=1.0.0,<2.0.0)", "deker-shell (>=1.0.0,<2.0.0)",
 server-adapters = ["deker-server-adapters (>=1.0.0,<2.0.0)"]
 shell = ["deker-shell (>=1.0.0,<2.0.0)"]
 xarray = ["xarray (>=2023.5.0,<2024.0.0)"]
+
+[package.source]
+type = "legacy"
+url = "https://test.pypi.org/simple"
+reference = "testpypi"
 
 [[package]]
 name = "deker-local-adapters"
@@ -2234,4 +2238,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "4e26df0ded2b729acc56d7619da5ad6265332e1d7ade96880f7f4224abcfefd4"
+content-hash = "3eeb02f2e87cc1e626a99a15515bfdafd7636f936dcd76ce6887f64d4629dcee"

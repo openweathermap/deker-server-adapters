@@ -73,10 +73,11 @@ def nodes_urls(nodes) -> List[str]:
     return urls
 
 
-@pytest.fixture(scope="session")
-def collection_path(nodes: List[str]) -> Uri:
-    uri = Uri.create("http://localhost:8000/v1/collection")
-    uri.servers = nodes
+@pytest.fixture()
+def collection_path(nodes_urls) -> Uri:
+    uri = Uri.create("http://localhost:8000,localhost:8012/v1/collection")
+    kwargs = {key: getattr(uri, key) for key in uri._fields}
+    kwargs["servers"] = nodes_urls
     return uri
 
 

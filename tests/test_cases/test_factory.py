@@ -36,7 +36,10 @@ def test_get_collection_adapter(adapter_factory: AdaptersFactory):
 
 def test_auth_factory(ctx, mock_healthcheck):
     uri = Uri.create("http://test:test@localhost/")
-    uri.servers = ["http://localhost:8000"]
+
+    kwargs = {key: getattr(uri, key) for key in uri._fields}
+    kwargs["servers"] = ["http://localhost:8000"]
+    uri = Uri(**kwargs)
 
     factory = AdaptersFactory(ctx, uri)
     assert factory.httpx_client.auth
@@ -44,7 +47,9 @@ def test_auth_factory(ctx, mock_healthcheck):
 
 def test_auth_factory_close(ctx, mock_healthcheck):
     uri = Uri.create("http://test:test@localhost/")
-    uri.servers = ["http://localhost:8000"]
+    kwargs = {key: getattr(uri, key) for key in uri._fields}
+    kwargs["servers"] = ["http://localhost:8000"]
+    uri = Uri(**kwargs)
 
     factory = AdaptersFactory(ctx, uri)
     factory.close()
@@ -53,7 +58,9 @@ def test_auth_factory_close(ctx, mock_healthcheck):
 
 def test_ctx_has_values_from_server(ctx, httpx_mock, mock_healthcheck, mocked_ping: Dict):
     uri = Uri.create("http://test:test@localhost/")
-    uri.servers = ["http://localhost:8000"]
+    kwargs = {key: getattr(uri, key) for key in uri._fields}
+    kwargs["servers"] = ["http://localhost:8000"]
+    uri = Uri(**kwargs)
 
     factory = AdaptersFactory(ctx, uri)
     vadapter = factory.get_varray_adapter("/col", HDF5StorageAdapter)
@@ -67,8 +74,10 @@ def test_if_cluster_raises_error_on_empty_response(httpx_mock, ctx):
     httpx_mock.add_response(url=re.compile(r".*ping"), method="GET")
     with pytest.raises(DekerClusterError):
         uri = Uri.create("http://test:test@localhost/")
-        uri.servers = ["http://localhost:8000"]
-        factory = AdaptersFactory(ctx, uri)
+        kwargs = {key: getattr(uri, key) for key in uri._fields}
+        kwargs["servers"] = ["http://localhost:8000"]
+        uri = Uri(**kwargs)
+        AdaptersFactory(ctx, uri)
 
 
 def test_if_factory_can_work_in_single_mode(ctx):
@@ -81,7 +90,10 @@ def test_if_factory_can_work_in_single_mode(ctx):
 
 def test_factory_set_leader(ctx, mock_healthcheck, mocked_ping):
     uri = Uri.create("http://test:test@localhost/")
-    uri.servers = ["http://localhost:8000"]
+    kwargs = {key: getattr(uri, key) for key in uri._fields}
+    kwargs["servers"] = ["http://localhost:8000"]
+    uri = Uri(**kwargs)
+
     factory = AdaptersFactory(ctx, uri)
     leader = mocked_ping["current_nodes"][0]
     leader_url = f"{leader['protocol']}://{leader['host']}:{leader['port']}"

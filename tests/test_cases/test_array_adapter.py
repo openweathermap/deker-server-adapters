@@ -11,6 +11,7 @@ import pytest
 
 from deker.arrays import Array
 from deker.collection import Collection
+from httpx import Request
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -245,3 +246,16 @@ def test_array_read_from_specific_node(
     host = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
     httpx_mock.add_response(url=re.compile(host), content=numpy.zeros(shape=(1,)).tobytes())
     server_array_adapter.read_data(array, ...)
+
+
+def test_array_generate_id(
+    array: Array, server_array_adapter: ServerArrayAdapter, httpx_mock, mock_healthcheck, collection
+):
+    httpx_mock.add_response(method="POST", json=array.as_dict, status_code=201)
+    data = array.as_dict
+    data.update({"id": None, "id_": None, "primary_attributes": {}})
+    server_array_adapter.create({**data, "adapter": server_array_adapter, "collection": collection})
+    requests: List[Request] = httpx_mock.get_requests()
+    for request in requests:
+        if request.method == "POST":
+            assert json.loads(request.content.decode())["id_"]
