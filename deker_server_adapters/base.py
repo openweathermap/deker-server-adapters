@@ -17,6 +17,7 @@ from deker.types import ArrayMeta, Numeric, Slice
 from deker.types.private.enums import ArrayType as ArrayStringType
 from deker.uri import Uri
 from deker_tools.slices import slice_converter
+from deker_tools.time import get_utc
 from httpx import Response, TimeoutException
 from numpy import ndarray
 
@@ -116,7 +117,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             if attr == "v_position":
                 value = "-".join(str(el) for el in attribute)
             else:
-                value = attribute.isoformat() if isinstance(attribute, datetime) else str(attribute)
+                value = get_utc(attribute).isoformat() if isinstance(attribute, datetime) else str(attribute)
             attrs_to_join.append(value)
         return self.hash_ring.get_node("/".join(attrs_to_join)) or ""
 
@@ -229,7 +230,13 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         :param array: Array/Varray to be deleted
         """
-        resource = self.client.delete(f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}")
+        if self.client.cluster_mode:
+            node_id = self.get_node(array)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+        else:
+            path = self.collection_path.raw_url.rstrip("/")
+        resource = self.client.delete(f"{path}/{self.type.name}/by-id/{array.id}")
         if resource.status_code != STATUS_OK:
             raise DekerServerError(resource, f"Couldn't delete the {self.type.name}")
 
