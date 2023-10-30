@@ -24,9 +24,9 @@ def _request(url: str, node: str, client: Client, request_kwargs: Optional[Dict]
 
     try:
         if request_kwargs:
-            response = client.get(f"{node}/{url}", **request_kwargs)
+            response = client.get(f"{node.rstrip('/')}/{url}", **request_kwargs)
         else:
-            response = client.get(f"{node}/{url}")
+            response = client.get(f"{node.rstrip('/')}/{url}")
     except Exception:
         logger.exception(f"Coudn't get response from {node}")  # noqa
 
