@@ -198,9 +198,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         # Only Varray can be located on different nodes yet.
         if self.type == ArrayType.varray:
-            response = make_request(url=url, nodes=self.nodes, client=self.client)
+            response = make_request(url=f"{self.collection_path.path}{url}", nodes=self.nodes, client=self.client)
         else:
-            response = self.client.get(f"{self.collection_path.raw_url}{url}")
+            node_id = self.get_node(array)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+            response = self.client.get(f"{path.rstrip('/')}{url}")
 
         if response is None or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't fetch an array")
@@ -217,9 +220,15 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param array: Instance of (v)array
         :param attributes: dict with attributes to update
         """
-        # Writing is always on leader node
+        # Writing is always on leader node for non array
+        path = self.collection_path.raw_url
+        if self.client.cluster_mode and self.type == ArrayType.array:
+            node_id = self.get_node(array)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+
         response = self.client.put(
-            f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
+            f"{path}/{self.type.name}/by-id/{array.id}",
             json={"custom_attributes": convert_datetime_attrs_to_iso(attributes)},
         )
         if response.status_code != STATUS_OK:
