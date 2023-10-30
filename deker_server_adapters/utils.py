@@ -3,7 +3,6 @@ from logging import getLogger
 from random import randint
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from deker.ctx import CTX
 from httpx import Client, Response
 
 from deker_server_adapters.consts import STATUS_OK
@@ -59,12 +58,8 @@ def make_request(
     return response
 
 
-def get_api_version(ctx: "CTX") -> str:
-    """Get API Version from context.
-
-    We have it as separate function to incapsulate logic.
-    :param ctx: Context
-    """
+def get_api_version() -> str:
+    """Get API Version."""
     return "v1"
 
 

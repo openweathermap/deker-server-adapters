@@ -141,7 +141,7 @@ class AdaptersFactory(BaseAdaptersFactory):
                     "Healthcheck failed. Deker client will be closed.",
                 )
 
-        url = f"{get_api_version(ctx)}/ping"
+        url = f"{get_api_version()}/ping"
 
         # If we do healthcheck in cluster
         nodes = [*ctx.uri.servers] if in_cluster else [ctx.uri.raw_url]

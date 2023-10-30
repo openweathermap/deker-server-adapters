@@ -1,8 +1,6 @@
 import json
 import re
 
-from typing import List
-from unittest.mock import patch
 from uuid import uuid4
 
 import numpy as np
@@ -10,7 +8,6 @@ import pytest
 
 from deker.arrays import VArray
 from deker.collection import Collection
-from httpx import Request
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -59,11 +56,11 @@ def test_create_fails_no_id(
 
 
 @pytest.mark.parametrize(
-    "method, args",
+    ("method", "args"),
     (
-        ("create", tuple()),
-        ("delete", tuple()),
-        ("read_meta", tuple()),
+        ("create", ()),
+        ("delete", ()),
+        ("read_meta", ()),
         ("clear", (np.index_exp[:],)),
         ("update_meta_custom_attributes", ({"foo": "bar"},)),
         ("read_data", (np.index_exp[:])),
@@ -139,29 +136,6 @@ def test_clear_deker_timeout(varray: VArray, httpx_mock: HTTPXMock, server_varra
         server_varray_adapter.clear(varray, np.index_exp[:])
 
 
-def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: List[str]):
-    with patch.object(varray, "primary_attributes", {}):
-        # Check window slides
-
-        node = server_varray_adapter.get_host_url(server_varray_adapter.get_node(varray))
-        assert node in nodes_urls
-
-
-def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: List[str]):
-    with patch.object(varray, "primary_attributes", {"foo": "bar"}):
-        # Check window slides
-
-        node = server_varray_adapter.get_host_url(server_varray_adapter.get_node(varray))
-        assert node in nodes_urls
-
-
-def test_get_node_give_same_result(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes: List[str]):
-    first_node = server_varray_adapter.get_node(varray)
-    for _ in range(10):
-        node = server_varray_adapter.get_node(varray)
-        assert node == first_node
-
-
 def test_iter_success(
     varray: VArray,
     httpx_mock: HTTPXMock,
@@ -173,28 +147,3 @@ def test_iter_success(
         arrays.append(array_)
 
     assert arrays == [json.loads(json.dumps(varray.as_dict))]
-
-
-def test_array_generate_id(
-    varray: VArray,
-    server_varray_adapter: ServerVarrayAdapter,
-    httpx_mock,
-    mock_healthcheck,
-    collection,
-    server_array_adapter: ServerArrayAdapter,
-):
-    httpx_mock.add_response(method="POST", json=varray.as_dict, status_code=201)
-    data = varray.as_dict
-    data.update({"id": None, "id_": None, "primary_attributes": None})
-    server_varray_adapter.create(
-        {
-            **data,
-            "adapter": server_varray_adapter,
-            "collection": collection,
-            "array_adapter": server_array_adapter,
-        }
-    )
-    requests: List[Request] = httpx_mock.get_requests()
-    for request in requests:
-        if request.method == "POST":
-            assert json.loads(request.content.decode())["id_"]

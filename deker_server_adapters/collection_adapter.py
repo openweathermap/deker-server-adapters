@@ -21,12 +21,12 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
     @property
     def collection_url_prefix(self) -> str:
         """Return prefix to collection."""
-        return f"{get_api_version(self.ctx)}/collection"
+        return f"{get_api_version()}/collection"
 
     @property
     def collections_url_prefix(self) -> str:
         """Return prefix to collections."""
-        return f"{get_api_version(self.ctx)}/collections"
+        return f"{get_api_version()}/collections"
 
     def delete(self, collection: "Collection") -> None:
         """Delete collection from server.
@@ -67,7 +67,10 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         :param name: Name of collection
         """
         url = f"{self.collection_url_prefix}/{name}"
-        response = make_request(url=url, nodes=self.nodes, client=self.client)
+        if self.client.cluster_mode:
+            response = make_request(url=url, nodes=self.nodes, client=self.client)
+        else:
+            response = self.client.get(url)
 
         if response and response.status_code == STATUS_OK:
             return response.json()

@@ -197,13 +197,15 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         url = f"/{self.type.name}/by-id/{array.id}"
 
         # Only Varray can be located on different nodes yet.
-        if self.type == ArrayType.varray:
+        if self.type == ArrayType.varray and self.client.cluster_mode:
             response = make_request(url=f"{self.collection_path.path}{url}", nodes=self.nodes, client=self.client)
-        else:
+        elif self.client.cluster_mode:
             node_id = self.get_node(array)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
             response = self.client.get(f"{path.rstrip('/')}{url}")
+        else:
+            response = self.client.get(f"{self.collection_path.raw_url.rstrip('/')}{url}")
 
         if response is None or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't fetch an array")
@@ -444,7 +446,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
     def __iter__(self) -> Generator["ArrayMeta", None, None]:
         urls = [f"{self.collection_path.raw_url}/{self.type.name}s"]
-        if self.type == ArrayType.array:
+        if self.type == ArrayType.array and self.client.cluster_mode:
             urls = [f"{self.__merge_node_and_collection_path(node)}/{self.type.name}s" for node in self.nodes]
 
         for url in urls:
