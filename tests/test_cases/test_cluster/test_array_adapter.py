@@ -19,7 +19,11 @@ if TYPE_CHECKING:
 
 def test_read_meta_success(array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, ctx: CTX):
     node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
-    httpx_mock.add_response(json=array.as_dict, method="GET", url=re.compile(node))
+    httpx_mock.add_response(
+        json=array.as_dict,
+        method="GET",
+        url=re.compile(f"{node}/v1/collection/{array.collection}/array/by-id/{array.id}"),
+    )
     assert server_array_adapter.read_meta(array) == json.loads(json.dumps(array.as_dict))
 
 

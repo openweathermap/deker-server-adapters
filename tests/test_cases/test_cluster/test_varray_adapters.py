@@ -1,9 +1,12 @@
 import json
+import re
 
 from typing import TYPE_CHECKING, List
 from unittest.mock import patch
 
 from deker.arrays import VArray
+from deker.ctx import CTX
+from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
@@ -58,3 +61,13 @@ def test_array_generate_id(
     for request in requests:
         if request.method == "POST":
             assert json.loads(request.content.decode())["id_"]
+
+
+def test_read_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerArrayAdapter, ctx: CTX):
+    node = server_varray_adapter.get_host_url(server_varray_adapter.get_node(varray))
+    httpx_mock.add_response(
+        json=varray.as_dict,
+        method="GET",
+        url=re.compile(f"{node}/v1/collection/{varray.collection}/varray/by-id/{varray.id}"),
+    )
+    assert server_varray_adapter.read_meta(varray) == json.loads(json.dumps(varray.as_dict))
