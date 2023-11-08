@@ -72,3 +72,7 @@ class DekerDataPointsLimitError(DekerBaseRateLimitError):
 
 class DekerClusterError(DekerBaseApplicationError):
     """If there is problem with cluster."""
+
+
+class HealthcheckError(DekerServerError):
+    """If f there is  problem with healthcheck."""

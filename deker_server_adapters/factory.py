@@ -9,7 +9,7 @@ from httpx import Response
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.consts import STATUS_OK
-from deker_server_adapters.errors import DekerClusterError, DekerServerError
+from deker_server_adapters.errors import DekerClusterError, DekerServerError, HealthcheckError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils import get_api_version, get_leader_and_nodes_mapping, make_request
@@ -151,9 +151,11 @@ class AdaptersFactory(BaseAdaptersFactory):
         if in_cluster:
             try:
                 config = response.json()  # type: ignore[union-attr]
+                if config.get("mode") != "cluster":
+                    raise HealthcheckError
                 return config
-            except JSONDecodeError:
-                raise DekerClusterError(response, "Server responded with empty config")
+            except (JSONDecodeError, HealthcheckError):
+                raise DekerClusterError(response, "Server responded with wrong config")
 
     def __set_cluster_config(self, cluster_config: Dict, ctx: CTX) -> None:
         """Set cluster config in the CTX.
