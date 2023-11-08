@@ -154,8 +154,14 @@ class AdaptersFactory(BaseAdaptersFactory):
                 if config.get("mode") != "cluster":
                     raise HealthcheckError
                 return config
-            except (JSONDecodeError, HealthcheckError):
-                raise DekerClusterError(response, "Server responded with wrong config")
+            except JSONDecodeError:
+                raise DekerClusterError(response, "Server responded with wrong config. Couldn't parse json")
+            except HealthcheckError:
+                raise DekerClusterError(
+                    response,
+                    "Server responded with wrong config."
+                    " Key 'mode' either doesn't exist or its value differs from 'cluster'",
+                )
 
     def __set_cluster_config(self, cluster_config: Dict, ctx: CTX) -> None:
         """Set cluster config in the CTX.
