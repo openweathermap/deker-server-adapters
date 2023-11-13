@@ -74,7 +74,7 @@ def ctx(mode, base_uri: Uri, nodes: List[str]) -> CTX:
                 "8381202B-8C95-487A-B9B5-0B527056804E": ["http://localhost:8000"],
                 "8381202B-8C95-487A-B9B5-0B5270568040": ["http://localhost:8012"],
             }
-            ctx.extra["nodes"] = ["http://localhost:8000"]
+            ctx.extra["nodes"] = ["http://localhost:8000", "http://localhost:8012"]
             client.cluster_mode = True
         yield ctx
 
