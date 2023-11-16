@@ -68,8 +68,9 @@ def test_iter_success(
     httpx_mock: HTTPXMock,
     server_array_adapter: ServerArrayAdapter,
 ):
-    for node in server_array_adapter.nodes:
-        httpx_mock.add_response(url=re.compile(node), json=[array.as_dict])
+    for index, node in enumerate(server_array_adapter.nodes):
+        response = [] if index == 0 else [array.as_dict]
+        httpx_mock.add_response(url=re.compile(node), json=response)
 
     arrays = []
     for array_ in server_array_adapter:
