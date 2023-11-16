@@ -241,7 +241,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         :param array: Array/Varray to be deleted
         """
-        if self.client.cluster_mode:
+        if self.client.cluster_mode and self.type == ArrayType.array:
             node_id = self.get_node(array)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
