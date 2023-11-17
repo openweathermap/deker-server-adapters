@@ -22,7 +22,7 @@ from httpx import Response, TimeoutException
 from numpy import ndarray
 
 from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
-from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
+from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer, FilteringByIdInClusterIsForbidden
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils import make_request
@@ -424,6 +424,14 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :return:
         """
         if self.client.cluster_mode:
+            # Hash from ID and hash from primary attributes are different
+            # So if schema has primary attributes,
+            # it means that hash has been calculated using primary custom_attributes
+            # Therefore, we cannot let filter by id.
+            schema = collection.varray_schema or collection.array_schema
+            if schema.primary_attributes:
+                raise FilteringByIdInClusterIsForbidden
+
             node_id = self.hash_ring.get_node(id_)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)

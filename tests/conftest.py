@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from deker import ArraySchema, DimensionSchema, VArraySchema
+from deker import ArraySchema, AttributeSchema, DimensionSchema, VArraySchema, dimensions
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.config import DekerConfig
@@ -129,9 +129,46 @@ def collection(adapter_factory: AdaptersFactory, collection_adapter: ServerColle
     )
 
 
+@pytest.fixture
+def collection_with_primary_attributes(
+    adapter_factory: AdaptersFactory, collection_adapter: ServerCollectionAdapter
+) -> Collection:
+    array_schema = ArraySchema(
+        dimensions=[DimensionSchema(name="x", size=1)],
+        attributes=[AttributeSchema(name="foo", dtype=str, primary=True)],
+        dtype=int,
+    )
+    return Collection(
+        name="test",
+        schema=array_schema,
+        adapter=collection_adapter,
+        factory=adapter_factory,
+        storage_adapter=HDF5StorageAdapter,
+    )
+
+
 @pytest.fixture()
 def varray_collection(collection_adapter: ServerCollectionAdapter, adapter_factory: AdaptersFactory) -> Collection:
     varray_schema = VArraySchema(dimensions=[DimensionSchema(name="x", size=1)], dtype=int, vgrid=(1,))
+    return Collection(
+        name="test",
+        schema=varray_schema,
+        adapter=collection_adapter,
+        factory=adapter_factory,
+        storage_adapter=HDF5StorageAdapter,
+    )
+
+
+@pytest.fixture()
+def varray_collection_with_primary_attributes(
+    collection_adapter: ServerCollectionAdapter, adapter_factory: AdaptersFactory
+) -> Collection:
+    varray_schema = VArraySchema(
+        dimensions=[DimensionSchema(name="x", size=1)],
+        dtype=int,
+        vgrid=(1,),
+        attributes=[AttributeSchema(name="foo", dtype=str, primary=True)],
+    )
     return Collection(
         name="test",
         schema=varray_schema,

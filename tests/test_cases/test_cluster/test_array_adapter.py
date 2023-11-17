@@ -5,12 +5,14 @@ from typing import TYPE_CHECKING, List
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 from deker.arrays import Array
 from deker.ctx import CTX
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
+from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
 
 
 if TYPE_CHECKING:
@@ -77,3 +79,8 @@ def test_iter_success(
         arrays.append(array_)
 
     assert arrays == [json.loads(json.dumps(array.as_dict))]
+
+
+def test_filter_by_id_is_not_allowed(collection_with_primary_attributes):
+    with pytest.raises(FilteringByIdInClusterIsForbidden):
+        collection_with_primary_attributes.filter({"id": "foo"}).last()

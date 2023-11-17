@@ -4,11 +4,14 @@ import re
 from typing import TYPE_CHECKING, List
 from unittest.mock import patch
 
+import pytest
+
 from deker.arrays import VArray
 from deker.ctx import CTX
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
+from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -71,3 +74,8 @@ def test_read_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_
         url=re.compile(f"{node}/v1/collection/{varray.collection}/varray/by-id/{varray.id}"),
     )
     assert server_varray_adapter.read_meta(varray) == json.loads(json.dumps(varray.as_dict))
+
+
+def test_filter_by_id_is_not_allowed(varray_collection_with_primary_attributes):
+    with pytest.raises(FilteringByIdInClusterIsForbidden):
+        varray_collection_with_primary_attributes.filter({"id": "foo"}).last()

@@ -76,3 +76,12 @@ class DekerClusterError(DekerBaseApplicationError):
 
 class HealthcheckError(DekerServerError):
     """If f there is  problem with healthcheck."""
+
+
+class FilteringByIdInClusterIsForbidden(DekerBaseApplicationError):
+    """If we try to filter by in in collection with primary attributes (in cluster)."""
+
+    message = (
+        "Collection has primary attributes in the schema."
+        "Filtering by ID is not allowed. Use filtering by primary attributes."
+    )
