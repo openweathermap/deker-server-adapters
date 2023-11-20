@@ -3,7 +3,6 @@ from logging import getLogger
 from random import randint
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from deker.ctx import CTX
 from httpx import Client, Response
 
 from deker_server_adapters.consts import STATUS_OK
@@ -24,9 +23,9 @@ def _request(url: str, node: str, client: Client, request_kwargs: Optional[Dict]
 
     try:
         if request_kwargs:
-            response = client.get(f"{node}/{url}", **request_kwargs)
+            response = client.get(f"{node.rstrip('/')}/{url.lstrip('/')}", **request_kwargs)
         else:
-            response = client.get(f"{node}/{url}")
+            response = client.get(f"{node.rstrip('/')}/{url.lstrip('/')}")
     except Exception:
         logger.exception(f"Coudn't get response from {node}")  # noqa
 
@@ -45,7 +44,6 @@ def make_request(
     """
     response = None
     nodes = list(nodes)
-
     if len(nodes) == 1:
         node = nodes.pop(0)
         response = _request(url, node, client, request_kwargs)
@@ -59,13 +57,9 @@ def make_request(
     return response
 
 
-def get_api_version(ctx: "CTX") -> str:
-    """Get API Version from context.
-
-    We have it as separate function to incapsulate logic.
-    :param ctx: Context
-    """
-    return ctx.extra.get("API_VERSION", "v1")
+def get_api_version() -> str:
+    """Get API Version."""
+    return "v1"
 
 
 def get_leader_and_nodes_mapping(cluster_config: Dict) -> Tuple[Optional[str], List, defaultdict, List]:

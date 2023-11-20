@@ -36,7 +36,7 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
     httpx_mock.add_response(
         status_code=200, method="PUT", json=new_cluster_config, url=re.compile(f"{ctx.extra['leader_node'].raw_url}")
     )
-    server_varray_adapter.clear(varray, ...)
+    server_varray_adapter.update_meta_custom_attributes(varray, {})
     leader, ids, mapping, nodes = get_leader_and_nodes_mapping(new_cluster_config)
     assert server_varray_adapter.ctx.extra["leader_node"] == Uri.create(leader)
     assert server_varray_adapter.ctx.extra["nodes"] == nodes

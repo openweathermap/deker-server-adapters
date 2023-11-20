@@ -11,15 +11,18 @@ import numpy as np
 from deker import Array, Collection, VArray
 from deker.ABC.base_array import BaseArray
 from deker.ctx import CTX
+from deker.tools.array import generate_uid
 from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Numeric, Slice
+from deker.types.private.enums import ArrayType as ArrayStringType
 from deker.uri import Uri
 from deker_tools.slices import slice_converter
+from deker_tools.time import get_utc
 from httpx import Response, TimeoutException
 from numpy import ndarray
 
 from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
-from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
+from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer, FilteringByIdInClusterIsForbidden
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils import make_request
@@ -114,9 +117,16 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             if attr == "v_position":
                 value = "-".join(str(el) for el in attribute)
             else:
-                value = attribute.isoformat() if isinstance(attribute, datetime) else str(attribute)
+                value = get_utc(attribute).isoformat() if isinstance(attribute, datetime) else str(attribute)
             attrs_to_join.append(value)
         return self.hash_ring.get_node("/".join(attrs_to_join)) or ""
+
+    def __merge_node_and_collection_path(self, node: str) -> str:
+        """Create new url from collection_path path and node host.
+
+        :param node: Node to merge with
+        """
+        return f"{node.rstrip('/')}{self.collection_path.path}"
 
     def create(self, array: Union[dict, "BaseArray"]) -> BaseArray:
         """Create array on server.
@@ -124,17 +134,35 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param array: Array instance
         :return:
         """
-        response = self.client.post(
-            f"{self.collection_path.raw_url}/{self.type.name}s",
-            json={
-                "primary_attributes": convert_datetime_attrs_to_iso(
-                    array["primary_attributes"],
-                ),
-                "custom_attributes": convert_datetime_attrs_to_iso(
-                    array["custom_attributes"],
-                ),
-            },
-        )
+        kwargs = {
+            "primary_attributes": convert_datetime_attrs_to_iso(
+                array["primary_attributes"],
+            ),
+            "custom_attributes": convert_datetime_attrs_to_iso(
+                array["custom_attributes"],
+            ),
+        }
+
+        if isinstance(array, dict):
+            array_type = ArrayStringType[self.type.name]
+            kwargs["id_"] = array.get("id_") or (self.client.cluster_mode and generate_uid(array_type) or None)
+
+        path = self.collection_path.raw_url.rstrip("/")
+
+        if self.type == ArrayType.array and self.client.cluster_mode:
+            if isinstance(array, dict):
+                if array.get("primary_attributes"):
+                    node_id = self.get_node_by_primary_attrs(array.get("primary_attributes"))  # type: ignore[arg-type]
+                else:
+                    node_id = self.hash_ring.get_node(kwargs.get("id_"))  # type: ignore[arg-type, assignment]
+
+            else:
+                node_id = self.get_node(array)
+
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+
+        response = self.client.post(f"{path}/{self.type.name}s", json=kwargs)
         if response.status_code != STATUS_CREATED:
             raise DekerServerError(response, "Couldn't create an array")
 
@@ -169,10 +197,15 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         url = f"/{self.type.name}/by-id/{array.id}"
 
         # Only Varray can be located on different nodes yet.
-        if self.type == ArrayType.varray:
-            response = make_request(url=url, nodes=self.nodes, client=self.client)
+        if self.type == ArrayType.varray and self.client.cluster_mode:
+            response = make_request(url=f"{self.collection_path.path}{url}", nodes=self.nodes, client=self.client)
+        elif self.client.cluster_mode:
+            node_id = self.get_node(array)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+            response = self.client.get(f"{path.rstrip('/')}{url}")
         else:
-            response = self.client.get(f"{self.collection_path.raw_url}{url}")
+            response = self.client.get(f"{self.collection_path.raw_url.rstrip('/')}{url}")
 
         if response is None or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't fetch an array")
@@ -189,9 +222,15 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param array: Instance of (v)array
         :param attributes: dict with attributes to update
         """
-        # Writing is always on leader node
+        # Writing is always on leader node for non array
+        path = self.collection_path.raw_url
+        if self.client.cluster_mode and self.type == ArrayType.array:
+            node_id = self.get_node(array)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+
         response = self.client.put(
-            f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}",
+            f"{path}/{self.type.name}/by-id/{array.id}",
             json={"custom_attributes": convert_datetime_attrs_to_iso(attributes)},
         )
         if response.status_code != STATUS_OK:
@@ -202,16 +241,15 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         :param array: Array/Varray to be deleted
         """
-        resource = self.client.delete(f"{self.collection_path.raw_url}/{self.type.name}/by-id/{array.id}")
+        if self.client.cluster_mode and self.type == ArrayType.array:
+            node_id = self.get_node(array)
+            node = self.get_host_url(node_id)
+            path = self.__merge_node_and_collection_path(node)
+        else:
+            path = self.collection_path.raw_url.rstrip("/")
+        resource = self.client.delete(f"{path}/{self.type.name}/by-id/{array.id}")
         if resource.status_code != STATUS_OK:
             raise DekerServerError(resource, f"Couldn't delete the {self.type.name}")
-
-    def __merge_node_and_collection_path(self, node: str) -> str:
-        """Create new url from collection_path path and node host.
-
-        :param node: Node to merge with
-        """
-        return f"{node.rstrip('/')}{self.collection_path.path}"
 
     def read_data(
         self,
@@ -242,7 +280,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             )
 
         if response.status_code == STATUS_OK:
-            numpy_array = np.frombuffer(response.read(), dtype=array.dtype)
+            numpy_array = np.fromstring(response.read(), dtype=array.dtype)  # type: ignore[call-overload]
             shape = array[bounds].shape
             if not shape and numpy_array:
                 return numpy_array[0]
@@ -386,6 +424,14 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :return:
         """
         if self.client.cluster_mode:
+            # Hash from ID and hash from primary attributes are different
+            # So if schema has primary attributes,
+            # it means that hash has been calculated using primary custom_attributes
+            # Therefore, we cannot let filter by id.
+            schema = collection.varray_schema or collection.array_schema
+            if schema.primary_attributes:
+                raise FilteringByIdInClusterIsForbidden
+
             node_id = self.hash_ring.get_node(id_)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
@@ -408,7 +454,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
     def __iter__(self) -> Generator["ArrayMeta", None, None]:
         urls = [f"{self.collection_path.raw_url}/{self.type.name}s"]
-        if self.type == ArrayType.array:
+        if self.type == ArrayType.array and self.client.cluster_mode:
             urls = [f"{self.__merge_node_and_collection_path(node)}/{self.type.name}s" for node in self.nodes]
 
         for url in urls:
@@ -419,5 +465,5 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                     logger.warning(f"Couldn't fetch arrays from node: {url}")
                 else:
                     raise DekerServerError(response, "Couldn't get list of arrays")
-
-            yield from response.json()
+            else:
+                yield from response.json()
