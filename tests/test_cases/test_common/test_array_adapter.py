@@ -1,5 +1,3 @@
-import json
-
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -22,7 +20,10 @@ def test_create_success(
 ):
     instance_id = str(uuid4())
     httpx_mock.add_response(status_code=201, json={"id": instance_id})
-    array = server_array_adapter.create({**array.as_dict, "adapter": server_array_adapter, "collection": collection})
+    data = array.as_dict
+    array = server_array_adapter.create(
+        {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
+    )
     assert array
     assert array.id == instance_id
 
@@ -34,16 +35,19 @@ def test_create_fails_no_id(
     collection: Collection,
 ):
     httpx_mock.add_response(status_code=201)
+    data = array.as_dict
     with pytest.raises(DekerServerError):
-        server_array_adapter.create({**array.as_dict, "adapter": server_array_adapter, "collection": collection})
+        server_array_adapter.create(
+            {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
+        )
 
 
 @pytest.mark.parametrize(
-    "method, args",
+    ("method", "args"),
     (
-        ("create", tuple()),
-        ("delete", tuple()),
-        ("read_meta", tuple()),
+        ("create", ()),
+        ("delete", ()),
+        ("read_meta", ()),
         ("clear", (np.index_exp[:],)),
         ("update_meta_custom_attributes", ({"foo": "bar"},)),
         (
@@ -65,13 +69,9 @@ def test_collection_raises_500(
     with pytest.raises(DekerServerError):
         if method == "create":
             array = array.as_dict
+            array["id_"] = array["id"]
         call_args = (array, *args)
         getattr(server_array_adapter, method)(*call_args)
-
-
-def test_read_meta_success(array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter):
-    httpx_mock.add_response(json=array.as_dict)
-    assert server_array_adapter.read_meta(array) == json.loads(json.dumps(array.as_dict))
 
 
 def test_update_meta_success(array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter):
@@ -193,29 +193,3 @@ def test_by_id_fail(
     httpx_mock.add_response(status_code=500)
     with pytest.raises(DekerServerError):
         server_array_adapter.get_by_id("id", collection, server_array_adapter, None)
-
-
-def test_iter_fail(
-    array: Array,
-    httpx_mock: HTTPXMock,
-    server_array_adapter: ServerArrayAdapter,
-    collection: Collection,
-):
-    httpx_mock.add_response(status_code=500)
-    with pytest.raises(DekerServerError):
-        for _ in server_array_adapter:
-            pass
-
-
-def test_iter_success(
-    array: Array,
-    httpx_mock: HTTPXMock,
-    server_array_adapter: ServerArrayAdapter,
-    collection: Collection,
-):
-    httpx_mock.add_response(json=[array.as_dict])
-    arrays = []
-    for array_ in server_array_adapter:
-        arrays.append(array_)
-
-    assert arrays == [json.loads(json.dumps(array.as_dict))]

@@ -1,4 +1,5 @@
 import json
+import re
 
 from uuid import uuid4
 
@@ -55,11 +56,11 @@ def test_create_fails_no_id(
 
 
 @pytest.mark.parametrize(
-    "method, args",
+    ("method", "args"),
     (
-        ("create", tuple()),
-        ("delete", tuple()),
-        ("read_meta", tuple()),
+        ("create", ()),
+        ("delete", ()),
+        ("read_meta", ()),
         ("clear", (np.index_exp[:],)),
         ("update_meta_custom_attributes", ({"foo": "bar"},)),
         ("read_data", (np.index_exp[:])),
@@ -133,3 +134,16 @@ def test_clear_deker_timeout(varray: VArray, httpx_mock: HTTPXMock, server_varra
 
     with pytest.raises(DekerTimeoutServer):
         server_varray_adapter.clear(varray, np.index_exp[:])
+
+
+def test_iter_success(
+    varray: VArray,
+    httpx_mock: HTTPXMock,
+    server_varray_adapter: ServerVarrayAdapter,
+):
+    httpx_mock.add_response(url=re.compile(server_varray_adapter.collection_path.raw_url), json=[varray.as_dict])
+    arrays = []
+    for array_ in server_varray_adapter:
+        arrays.append(array_)
+
+    assert arrays == [json.loads(json.dumps(varray.as_dict))]

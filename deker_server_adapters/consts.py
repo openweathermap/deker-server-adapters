@@ -10,6 +10,7 @@ NOT_FOUND = 404
 TIMEOUT = 504
 CONTENT_TOO_LARGE = 413
 TOO_MANY_REQUESTS = 429
+NON_LEADER_WRITE = 421
 
 # Name of the parameter in the server response
 COLLECTION_NAME_PARAM = "collection_name"

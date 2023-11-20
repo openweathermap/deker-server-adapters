@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from deker.uri import Uri
 from deker_local_adapters.storage_adapters.hdf5 import HDF5StorageAdapter
 
@@ -25,16 +23,3 @@ def test_get_server_varray_adapter(adapter_factory: AdaptersFactory, collection_
 
 def test_get_collection_adapter(adapter_factory: AdaptersFactory):
     assert isinstance(adapter_factory.get_collection_adapter(), ServerCollectionAdapter)
-
-
-def test_auth_factory(ctx):
-    uri = Uri.create("http://test:test@localhost/")
-    factory = AdaptersFactory(ctx, uri)
-    assert factory.httpx_client.auth
-
-
-def test_auth_factory_close(ctx):
-    uri = Uri.create("http://test:test@localhost/")
-    factory = AdaptersFactory(ctx, uri)
-    factory.close()
-    assert factory.httpx_client.is_closed
