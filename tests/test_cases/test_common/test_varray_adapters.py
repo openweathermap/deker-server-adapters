@@ -147,3 +147,14 @@ def test_iter_success(
         arrays.append(array_)
 
     assert arrays == [json.loads(json.dumps(varray.as_dict))]
+
+
+def test_read_data_single_number(
+    varray: VArray,
+    httpx_mock: HTTPXMock,
+    server_varray_adapter: ServerVarrayAdapter,
+    collection: Collection,
+):
+    data = np.zeros(shape=(1,))
+    httpx_mock.add_response(content=data.tobytes())
+    assert server_varray_adapter.read_data(varray, np.index_exp[0]) == data[0]
