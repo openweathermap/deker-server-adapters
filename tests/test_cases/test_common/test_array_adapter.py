@@ -193,3 +193,14 @@ def test_by_id_fail(
     httpx_mock.add_response(status_code=500)
     with pytest.raises(DekerServerError):
         server_array_adapter.get_by_id("id", collection, server_array_adapter, None)
+
+
+def test_read_data_single_number(
+    array: Array,
+    httpx_mock: HTTPXMock,
+    server_array_adapter: ServerArrayAdapter,
+    collection: Collection,
+):
+    data = np.zeros(shape=(1,))
+    httpx_mock.add_response(content=data.tobytes())
+    assert server_array_adapter.read_data(array, np.index_exp[0]) == data[0]
