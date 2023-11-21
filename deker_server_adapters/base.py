@@ -282,7 +282,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         if response.status_code == STATUS_OK:
             numpy_array = np.fromstring(response.read(), dtype=array.dtype)  # type: ignore[call-overload]
             shape = array[bounds].shape
-            if not shape and numpy_array:
+            if not shape and numpy_array.size:
                 return numpy_array[0]
 
             return numpy_array.reshape(shape)
