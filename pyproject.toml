@@ -55,7 +55,7 @@ priority = "supplemental"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-httpx = {extras = ["http2"], version = "^0.24.1"}
+httpx = {extras = ["http2"], version = "0.19.0"}
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.7.0"
@@ -73,7 +73,7 @@ pytest = "^7.4.0"
 pytest-cov = "^4.1.0"
 pytest-sugar = "^0.9.7"
 pytest-mock = "^3.11.1"
-pytest-httpx = "^0.23.1"
+                                #pytest-httpx = "^0.23.1"
 flake8-pyproject = "^1.2.3"
 pytest-random-order = "1.1.0"
 deker = {version = "^1.1.2", allow-prereleases = true}
