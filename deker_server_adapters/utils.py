@@ -26,7 +26,7 @@ def _request(url: str, node: str, client: Client, request_kwargs: Optional[Dict]
             response = client.get(request_url, **request_kwargs)
         else:
             response = client.get(request_url)
-    except Exception as e:
+    except Exception:
         logger.exception(f"Coudn't get response from {node}")  # noqa
 
     return response
