@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from deker import ArraySchema, AttributeSchema, DimensionSchema, VArraySchema, dimensions
+from deker import ArraySchema, AttributeSchema, DimensionSchema, VArraySchema
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.config import DekerConfig
