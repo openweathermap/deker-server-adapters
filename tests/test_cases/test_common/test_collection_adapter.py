@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -103,3 +104,18 @@ def test_collection_clear_raises_not_found(
     httpx_mock.add_response(status_code=404)
     with pytest.raises(DekerCollectionNotExistsError):
         collection_adapter.clear(collection)
+
+
+@pytest.mark.xfail(reason="Request is not mocked properly")
+def test_client_iter_success(
+    collection: Collection, httpx_mock: HTTPXMock, collection_adapter: ServerCollectionAdapter, ctx
+):
+    httpx_mock.add_response(
+        url=re.compile(f"{ctx.uri.raw_url.rstrip('/')}/v1/collections/"), json=[collection.as_dict], status_code=200
+    )
+
+    cols = []
+    for col in collection_adapter:
+        cols.append(col)
+
+    assert cols == [json.loads(json.dumps(collection.as_dict))]
