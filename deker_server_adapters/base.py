@@ -144,7 +144,6 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         }
 
         if isinstance(array, dict):
-            array_type = ArrayStringType[self.type.name]
             kwargs["id_"] = array.get("id_") or (self.client.cluster_mode and get_id() or None)
 
         path = self.collection_path.raw_url.rstrip("/")
