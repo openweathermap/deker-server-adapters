@@ -14,7 +14,6 @@ from deker.ctx import CTX
 from deker.tools.array import get_id
 from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Numeric, Slice
-from deker.types.private.enums import ArrayType as ArrayStringType
 from deker.uri import Uri
 from deker_tools.slices import slice_converter
 from deker_tools.time import get_utc
