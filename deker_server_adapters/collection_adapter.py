@@ -117,9 +117,8 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         return False
 
     def __iter__(self) -> Generator[dict, None, None]:
-        all_collections_response = make_request(
-            url=self.collections_url_prefix, nodes=self.hash_ring.nodes, client=self.client
-        )
+        nodes = self.nodes if self.client.cluster_mode else [str(self.client.base_url)]
+        all_collections_response = make_request(url=self.collections_url_prefix, nodes=nodes, client=self.client)
         if all_collections_response is None or all_collections_response.status_code != STATUS_OK:
             raise DekerServerError(
                 all_collections_response,
