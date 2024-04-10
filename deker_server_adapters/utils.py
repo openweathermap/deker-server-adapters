@@ -29,7 +29,7 @@ def _request(url: str, node: str, client: Client, request_kwargs: Optional[Dict]
         else:
             response = client.get(request_url)
     except Exception as e:
-        traceback.print_exc()
+        traceback.print_exc(-1)
         logger.exception(f"Coudn't get response from {node}", exc_info=e)  # noqa
 
     return response
