@@ -1,3 +1,5 @@
+import traceback
+
 from collections import defaultdict
 from logging import getLogger
 from random import randint
@@ -26,8 +28,9 @@ def _request(url: str, node: str, client: Client, request_kwargs: Optional[Dict]
             response = client.get(f"{node.rstrip('/')}/{url.lstrip('/')}", **request_kwargs)
         else:
             response = client.get(f"{node.rstrip('/')}/{url.lstrip('/')}")
-    except Exception:
-        logger.exception(f"Coudn't get response from {node}")  # noqa
+    except Exception as e:
+        traceback.print_exc()
+        logger.exception(f"Coudn't get response from {node}", exc_info=e)  # noqa
 
     return response
 

@@ -9,7 +9,7 @@ from httpx import Response
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.consts import STATUS_OK
-from deker_server_adapters.errors import DekerClusterError, DekerServerError, HealthcheckError
+from deker_server_adapters.errors import DekerClusterError, DekerServerError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils import get_api_version, get_leader_and_nodes_mapping, make_request
@@ -18,6 +18,8 @@ from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseCollectionAdapter, BaseStorageAdapter, BaseVArrayAdapter
+
+CLUSTER_MODE = "cluster"
 
 
 class AdaptersFactory(BaseAdaptersFactory):
@@ -57,12 +59,9 @@ class AdaptersFactory(BaseAdaptersFactory):
         copied_ctx.extra["httpx_client"] = self.httpx_client
 
         # Cluster config
-        if hasattr(uri, "servers") and uri.servers:
-            self.get_cluster_config_and_configure_context(copied_ctx)
+        self.get_config_and_configure_context(copied_ctx)
 
         # Single server
-        else:
-            self.do_healthcheck(ctx=copied_ctx, in_cluster=False)
 
         super().__init__(copied_ctx, uri)
 
@@ -125,12 +124,18 @@ class AdaptersFactory(BaseAdaptersFactory):
         """
         return ServerCollectionAdapter(self.ctx)
 
-    def do_healthcheck(self, ctx: CTX, in_cluster: bool = False) -> Optional[Dict]:
+    def __uri_has_servers(self, ctx: CTX) -> bool:
+        """Check if URI has servers.
+
+        :param ctx: Context with URI
+        """
+        return hasattr(ctx.uri, "servers") and ctx.uri.servers
+
+    def do_healthcheck(self, ctx: CTX) -> Optional[Dict]:
         """Check if server is alive.
 
         Fetches config as well.
         :param ctx: App context
-        :param in_cluster: If we are in cluster
         """
 
         def check_response(response: Optional[Response], client: HttpxClient) -> None:
@@ -144,30 +149,22 @@ class AdaptersFactory(BaseAdaptersFactory):
         url = f"{get_api_version()}/ping"
 
         # If we do healthcheck in cluster
-        nodes = [*ctx.uri.servers] if in_cluster else [ctx.uri.raw_url]
+        nodes = [*ctx.uri.servers] if self.__uri_has_servers(ctx) else [ctx.uri.raw_url]
         response = make_request(url=url, nodes=nodes, client=self.httpx_client)
         check_response(response=response, client=self.httpx_client)
 
-        if in_cluster:
-            try:
-                config = response.json()  # type: ignore[union-attr]
-                if config.get("mode") != "cluster":
-                    raise HealthcheckError
-                return config
-            except JSONDecodeError:
+        try:
+            config = response.json()  # type: ignore[union-attr]
+            return config
+        except JSONDecodeError:
+            if self.__uri_has_servers(ctx):
                 raise DekerClusterError(response, "Server responded with wrong config. Couldn't parse json")
-            except HealthcheckError:
-                raise DekerClusterError(
-                    response,
-                    "Server responded with wrong config."
-                    " Key 'mode' either doesn't exist or its value differs from 'cluster'",
-                )
 
     def __set_cluster_config(self, cluster_config: Dict, ctx: CTX) -> None:
         """Set cluster config in the CTX.
 
         :param cluster_config: Custer config json from server
-        :param ctx: App cotext (Deker CTX)
+        :param ctx: App context (Deker CTX)
         """
         leader_node, ids, id_to_host_mapping, nodes = get_leader_and_nodes_mapping(cluster_config)
 
@@ -180,17 +177,36 @@ class AdaptersFactory(BaseAdaptersFactory):
         ctx.extra["hash_ring"] = HashRing(ids)
         ctx.extra["nodes"] = nodes
 
-    def get_cluster_config_and_configure_context(self, ctx: CTX) -> None:
+    def __is_mode_cluster(self, config: Optional[dict], ctx: CTX) -> bool:
+        """Check if mode from config is set to cluster.
+
+        :param config: Config from response
+        :param ctx: Context of app
+        """
+        if not self.__uri_has_servers(ctx):
+            return config is not None and config.get("mode") == CLUSTER_MODE
+
+        if config is None or config.get("mode") != CLUSTER_MODE:
+            raise DekerClusterError(
+                config,
+                "Server responded with wrong config."
+                " Key 'mode' either doesn't exist or its value differs from 'cluster'",
+            )
+
+        return True
+
+    def get_config_and_configure_context(self, ctx: CTX) -> None:
         """Get info from node and set config.
 
         :param ctx: CTX where client and config will be injected
         """
-        # Get Cluster config
-        cluster_config = self.do_healthcheck(ctx, in_cluster=True)
+        # Get config
+        config = self.do_healthcheck(ctx)
 
-        # Set cluster config
-        self.__set_cluster_config(cluster_config, ctx)  # type: ignore[arg-type]
+        if self.__is_mode_cluster(config, ctx):
+            # Set cluster config
+            self.__set_cluster_config(config, ctx)  # type: ignore[arg-type]
 
-        # Set Httpx client based on cluster config
-        self.httpx_client.base_url = ctx.extra["leader_node"].raw_url
-        self.httpx_client.cluster_mode = True
+            # Set Httpx client based on cluster config
+            self.httpx_client.base_url = ctx.extra["leader_node"].raw_url
+            self.httpx_client.cluster_mode = True
