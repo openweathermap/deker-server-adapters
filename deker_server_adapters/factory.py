@@ -124,13 +124,6 @@ class AdaptersFactory(BaseAdaptersFactory):
         """
         return ServerCollectionAdapter(self.ctx)
 
-    def __uri_has_servers(self, ctx: CTX) -> bool:
-        """Check if URI has servers.
-
-        :param ctx: Context with URI
-        """
-        return hasattr(ctx.uri, "servers") and ctx.uri.servers
-
     def do_healthcheck(self, ctx: CTX) -> Optional[Dict]:
         """Check if server is alive.
 
@@ -149,7 +142,7 @@ class AdaptersFactory(BaseAdaptersFactory):
         url = f"{get_api_version()}/ping"
 
         # If we do healthcheck in cluster
-        nodes = [*ctx.uri.servers] if self.__uri_has_servers(ctx) else [ctx.uri.raw_url]
+        nodes = [*ctx.uri.servers] if ctx.uri.servers else [ctx.uri.raw_url]
         response = make_request(url=url, nodes=nodes, client=self.httpx_client)
         check_response(response=response, client=self.httpx_client)
 
@@ -157,7 +150,7 @@ class AdaptersFactory(BaseAdaptersFactory):
             config = response.json()  # type: ignore[union-attr]
             return config
         except JSONDecodeError:
-            if self.__uri_has_servers(ctx):
+            if ctx.uri.servers:
                 raise DekerClusterError(response, "Server responded with wrong config. Couldn't parse json")
 
     def __set_cluster_config(self, cluster_config: Dict, ctx: CTX) -> None:
@@ -183,7 +176,7 @@ class AdaptersFactory(BaseAdaptersFactory):
         :param config: Config from response
         :param ctx: Context of app
         """
-        if not self.__uri_has_servers(ctx):
+        if not ctx.uri.servers:
             return config is not None and config.get("mode") == CLUSTER_MODE
 
         if config is None or config.get("mode") != CLUSTER_MODE:

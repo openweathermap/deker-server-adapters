@@ -11,10 +11,9 @@ import numpy as np
 from deker import Array, Collection, VArray
 from deker.ABC.base_array import BaseArray
 from deker.ctx import CTX
-from deker.tools.array import generate_uid
+from deker.tools.array import get_id
 from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Numeric, Slice
-from deker.types.private.enums import ArrayType as ArrayStringType
 from deker.uri import Uri
 from deker_tools.slices import slice_converter
 from deker_tools.time import get_utc
@@ -144,8 +143,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         }
 
         if isinstance(array, dict):
-            array_type = ArrayStringType[self.type.name]
-            kwargs["id_"] = array.get("id_") or (self.client.cluster_mode and generate_uid(array_type) or None)
+            kwargs["id_"] = array.get("id_") or (self.client.cluster_mode and get_id() or None)
 
         path = self.collection_path.raw_url.rstrip("/")
 
