@@ -24,7 +24,7 @@ from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, T
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer, FilteringByIdInClusterIsForbidden
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import make_request
+from deker_server_adapters.utils import get_node_by_primary_attrs, make_request
 
 
 if TYPE_CHECKING:
@@ -150,7 +150,9 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         if self.type == ArrayType.array and self.client.cluster_mode:
             if isinstance(array, dict):
                 if array.get("primary_attributes"):
-                    node_id = self.get_node_by_primary_attrs(array.get("primary_attributes"))  # type: ignore[arg-type]
+                    node_id = self.hash_ring.get_node(
+                        get_node_by_primary_attrs(array.get("primary_attributes"))  # type: ignore[arg-type]
+                    )
                 else:
                     node_id = self.hash_ring.get_node(kwargs.get("id_"))  # type: ignore[arg-type, assignment]
 
@@ -386,7 +388,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         # We read an Array through the node it belongs
         if self.client.cluster_mode:
-            node_id = self.get_node_by_primary_attrs(primary_attributes)
+            node_id = self.hash_ring.get_node(get_node_by_primary_attrs(primary_attributes))
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
         else:

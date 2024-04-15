@@ -1,10 +1,12 @@
 import traceback
 
 from collections import defaultdict
+from datetime import datetime
 from logging import getLogger
 from random import randint
 from typing import Dict, List, Optional, Set, Tuple, Union
 
+from deker_tools.time import get_utc
 from httpx import Client, Response
 
 from deker_server_adapters.consts import STATUS_OK
@@ -87,3 +89,19 @@ def get_leader_and_nodes_mapping(cluster_config: Dict) -> Tuple[Optional[str], L
             leader_node = url
 
     return leader_node, ids, id_to_host_mapping, nodes
+
+
+def get_node_by_primary_attrs(primary_attributes: Dict) -> str:
+    """Get hash by primary attributes.
+
+    :param primary_attributes: Dict of primary attributes
+    """
+    attrs_to_join = []
+    for attr in primary_attributes:
+        attribute = primary_attributes[attr]
+        if attr == "v_position":
+            value = "-".join(str(el) for el in attribute)
+        else:
+            value = get_utc(attribute).isoformat() if isinstance(attribute, datetime) else str(attribute)
+        attrs_to_join.append(value)
+    return "/".join(attrs_to_join) or ""
