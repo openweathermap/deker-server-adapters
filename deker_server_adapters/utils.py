@@ -1,10 +1,13 @@
 import traceback
 
 from collections import defaultdict
+from datetime import datetime
 from logging import getLogger
 from random import randint
 from typing import Dict, List, Optional, Set, Tuple, Union
 
+from deker.ABC import BaseArray
+from deker_tools.time import get_utc
 from httpx import Client, Response
 
 from deker_server_adapters.consts import STATUS_OK
@@ -87,3 +90,37 @@ def get_leader_and_nodes_mapping(cluster_config: Dict) -> Tuple[Optional[str], L
             leader_node = url
 
     return leader_node, ids, id_to_host_mapping, nodes
+
+
+def get_hash_by_primary_attrs(primary_attributes: Dict) -> str:
+    """Get hash by primary attributes.
+
+    :param primary_attributes: Dict of primary attributes
+    """
+    attrs_to_join = []
+    for attr in primary_attributes:
+        attribute = primary_attributes[attr]
+        if attr == "v_position":
+            value = "-".join(str(el) for el in attribute)
+        else:
+            value = get_utc(attribute).isoformat() if isinstance(attribute, datetime) else str(attribute)
+        attrs_to_join.append(value)
+    return "/".join(attrs_to_join) or ""
+
+
+def get_hash_key(array: Union[dict, BaseArray]) -> str:
+    """Get hash key for an array.
+
+    :param array: Instance of (V)Array
+    """
+    if isinstance(array, dict):
+        primary_attributes = array.get("primary_attributes")
+        id_ = array.get("id_")
+    else:
+        primary_attributes = array.primary_attributes
+        id_ = array.id
+
+    if primary_attributes:
+        return get_hash_by_primary_attrs(primary_attributes)
+
+    return id_  # type: ignore[return-value]
