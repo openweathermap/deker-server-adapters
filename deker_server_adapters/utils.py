@@ -11,7 +11,6 @@ from deker_tools.time import get_utc
 from httpx import Client, Response
 
 from deker_server_adapters.consts import STATUS_OK
-from deker_server_adapters.hash_ring import HashRing
 
 
 logger = getLogger(__name__)
@@ -93,8 +92,8 @@ def get_leader_and_nodes_mapping(cluster_config: Dict) -> Tuple[Optional[str], L
     return leader_node, ids, id_to_host_mapping, nodes
 
 
-def get_key_from_primary_attributes(primary_attributes: Dict) -> str:
-    """Get key by primary attributes.
+def get_hash_by_primary_attrs(primary_attributes: Dict) -> str:
+    """Get hash by primary attributes.
 
     :param primary_attributes: Dict of primary attributes
     """
@@ -109,38 +108,19 @@ def get_key_from_primary_attributes(primary_attributes: Dict) -> str:
     return "/".join(attrs_to_join) or ""
 
 
-def get_node_by_primary_attributes(primary_attributes: Dict, hash_ring: HashRing) -> str:
-    """Get hash node by primary attributes.
+def get_hash_key(array: Union[dict, BaseArray]) -> str:
+    """Get hash key for an array.
 
-    :param primary_attributes: Dict of primary attributes
-    :param hash_ring: HashRing instance
-    """
-    return hash_ring.get_node(get_key_from_primary_attributes(primary_attributes))
-
-
-def get_node_by_id(id_: str, hash_ring: HashRing) -> str:
-    """Get hash node by primary attributes.
-
-    :param id_: ID of array
-    :param hash_ring: HashRing instance
-    """
-    return hash_ring.get_node(id_)
-
-
-def get_node_from_hash_ring(array: Union[BaseArray, Dict], hash_ring: HashRing) -> str:
-    """Get hash for primary attributes or id.
-
-    :param array: Array or varray
-    :param hash_ring: HashRing instance
+    :param array: Instance of (V)Array
     """
     if isinstance(array, dict):
-        id_ = array.get("id_")
         primary_attributes = array.get("primary_attributes")
+        id_ = array.get("id_")
     else:
-        id_ = array.id
         primary_attributes = array.primary_attributes
+        id_ = array.id
 
-    if not primary_attributes:
-        return get_node_by_id(id_, hash_ring)  # type: ignore[arg-type]
+    if primary_attributes:
+        return get_hash_by_primary_attrs(primary_attributes)
 
-    return get_node_by_primary_attributes(primary_attributes, hash_ring)
+    return id_  # type: ignore[return-value]

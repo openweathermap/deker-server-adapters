@@ -88,6 +88,4 @@ class FilteringByIdInClusterIsForbidden(DekerBaseApplicationError):
 
 
 class HashRingError(DekerBaseApplicationError):
-    """If there is a problem with hash ring."""
-
-    message = "Couldn't get hash from hash ring"
+    """If there is a problem with HashRing."""
