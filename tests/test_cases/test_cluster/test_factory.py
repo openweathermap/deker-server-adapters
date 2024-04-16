@@ -71,3 +71,14 @@ def test_factory_set_leader(ctx, mocked_ping, mock_ping):
     assert str(factory.ctx.extra["httpx_client"].base_url) == leader_url
     collection_adapter = factory.get_collection_adapter()
     assert leader_url in collection_adapter.collections_resource.raw_url
+
+
+def test_factory_get_config_from_single_server(ctx, mock_ping, mocked_ping):
+    uri = Uri.create("http://test:test@localhost/")
+
+    factory = AdaptersFactory(ctx, uri)
+    vadapter = factory.get_varray_adapter("/col", HDF5StorageAdapter)
+    adapter = factory.get_array_adapter("/coll", HDF5StorageAdapter)
+
+    assert vadapter.hash_ring.nodes == [node["id"] for node in mocked_ping["current_nodes"]]
+    assert adapter.hash_ring.nodes == [node["id"] for node in mocked_ping["current_nodes"]]
