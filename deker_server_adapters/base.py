@@ -1,7 +1,6 @@
 import logging
 
 from collections.abc import Generator
-from datetime import datetime
 from json import JSONDecodeError
 from random import choice
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
@@ -16,7 +15,6 @@ from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Numeric, Slice
 from deker.uri import Uri
 from deker_tools.slices import slice_converter
-from deker_tools.time import get_utc
 from httpx import Response, TimeoutException
 from numpy import ndarray
 
@@ -24,7 +22,12 @@ from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, T
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer, FilteringByIdInClusterIsForbidden
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import get_node_by_primary_attrs, make_request
+from deker_server_adapters.utils import (
+    get_key_from_primary_attributes,
+    get_node_by_id,
+    get_node_from_hash_ring,
+    make_request,
+)
 
 
 if TYPE_CHECKING:
@@ -100,25 +103,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         :param array: Array or varray
         """
-        if not array.primary_attributes:
-            return self.hash_ring.get_node(array.id) or ""
-
-        return self.get_node_by_primary_attrs(array.primary_attributes)
-
-    def get_node_by_primary_attrs(self, primary_attributes: Dict) -> str:
-        """Get hash by primary attributes.
-
-        :param primary_attributes: Dict of primary attributes
-        """
-        attrs_to_join = []
-        for attr in primary_attributes:
-            attribute = primary_attributes[attr]
-            if attr == "v_position":
-                value = "-".join(str(el) for el in attribute)
-            else:
-                value = get_utc(attribute).isoformat() if isinstance(attribute, datetime) else str(attribute)
-            attrs_to_join.append(value)
-        return self.hash_ring.get_node("/".join(attrs_to_join)) or ""
+        return get_node_from_hash_ring(array, self.hash_ring)
 
     def __merge_node_and_collection_path(self, node: str) -> str:
         """Create new url from collection_path path and node host.
@@ -144,21 +129,13 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         if isinstance(array, dict):
             kwargs["id_"] = array.get("id_") or (self.client.cluster_mode and get_id() or None)
+            # To be able to retrieve node from hash, we should have ID in array
+            array["id_"] = kwargs["id_"]
 
         path = self.collection_path.raw_url.rstrip("/")
 
         if self.type == ArrayType.array and self.client.cluster_mode:
-            if isinstance(array, dict):
-                if array.get("primary_attributes"):
-                    node_id = self.hash_ring.get_node(
-                        get_node_by_primary_attrs(array.get("primary_attributes"))  # type: ignore[arg-type]
-                    )
-                else:
-                    node_id = self.hash_ring.get_node(kwargs.get("id_"))  # type: ignore[arg-type, assignment]
-
-            else:
-                node_id = self.get_node(array)
-
+            node_id = get_node_from_hash_ring(array, self.hash_ring)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
 
@@ -200,7 +177,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         if self.type == ArrayType.varray and self.client.cluster_mode:
             response = make_request(url=f"{self.collection_path.path}{url}", nodes=self.nodes, client=self.client)
         elif self.client.cluster_mode:
-            node_id = self.get_node(array)
+            node_id = get_node_from_hash_ring(array, self.hash_ring)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
             response = self.client.get(f"{path.rstrip('/')}{url}")
@@ -225,7 +202,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         # Writing is always on leader node for non array
         path = self.collection_path.raw_url
         if self.client.cluster_mode and self.type == ArrayType.array:
-            node_id = self.get_node(array)
+            node_id = get_node_from_hash_ring(array, self.hash_ring)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
 
@@ -242,7 +219,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param array: Array/Varray to be deleted
         """
         if self.client.cluster_mode and self.type == ArrayType.array:
-            node_id = self.get_node(array)
+            node_id = get_node_from_hash_ring(array, self.hash_ring)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
         else:
@@ -264,7 +241,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """
         bounds_ = slice_converter[bounds]
         if self.client.cluster_mode:
-            node_id = self.get_node(array)
+            node_id = get_node_from_hash_ring(array, self.hash_ring)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
         else:
@@ -304,7 +281,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         # We write (v)array through the node it belongs in cluster
         if self.client.cluster_mode:
-            node_id = self.get_node(array)
+            node_id = get_node_from_hash_ring(array, self.hash_ring)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
         else:
@@ -388,7 +365,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         # We read an Array through the node it belongs
         if self.client.cluster_mode:
-            node_id = self.hash_ring.get_node(get_node_by_primary_attrs(primary_attributes))
+            node_id = self.hash_ring.get_node(get_key_from_primary_attributes(primary_attributes))
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
         else:
@@ -432,7 +409,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             if schema.primary_attributes:
                 raise FilteringByIdInClusterIsForbidden
 
-            node_id = self.hash_ring.get_node(id_)
+            node_id = get_node_by_id(id_, self.hash_ring)
             node = self.get_host_url(node_id)
             path = self.__merge_node_and_collection_path(node)
         else:

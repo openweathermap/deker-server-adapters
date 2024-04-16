@@ -85,3 +85,9 @@ class FilteringByIdInClusterIsForbidden(DekerBaseApplicationError):
         "Collection has primary attributes in the schema."
         "Filtering by ID is not allowed. Use filtering by primary attributes."
     )
+
+
+class HashRingError(DekerBaseApplicationError):
+    """If there is a problem with hash ring."""
+
+    message = "Couldn't get hash from hash ring"

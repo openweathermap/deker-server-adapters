@@ -12,6 +12,7 @@ from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
+from deker_server_adapters.utils import get_node_from_hash_ring
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -23,7 +24,7 @@ def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapt
     with patch.object(varray, "primary_attributes", {}):
         # Check window slides
 
-        node = server_varray_adapter.get_host_url(server_varray_adapter.get_node(varray))
+        node = server_varray_adapter.get_host_url(get_node_from_hash_ring(varray, server_varray_adapter.hash_ring))
         assert node in nodes_urls
 
 
@@ -31,14 +32,14 @@ def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarray
     with patch.object(varray, "primary_attributes", {"foo": "bar"}):
         # Check window slides
 
-        node = server_varray_adapter.get_host_url(server_varray_adapter.get_node(varray))
+        node = server_varray_adapter.get_host_url(get_node_from_hash_ring(varray, server_varray_adapter.hash_ring))
         assert node in nodes_urls
 
 
 def test_get_node_give_same_result(varray: VArray, server_varray_adapter: ServerVarrayAdapter):
-    first_node = server_varray_adapter.get_node(varray)
+    first_node = get_node_from_hash_ring(varray, server_varray_adapter.hash_ring)
     for _ in range(10):
-        node = server_varray_adapter.get_node(varray)
+        node = get_node_from_hash_ring(varray, server_varray_adapter.hash_ring)
         assert node == first_node
 
 
@@ -67,7 +68,7 @@ def test_array_generate_id(
 
 
 def test_read_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerArrayAdapter, ctx: CTX):
-    node = server_varray_adapter.get_host_url(server_varray_adapter.get_node(varray))
+    node = server_varray_adapter.get_host_url(get_node_from_hash_ring(varray, server_varray_adapter.hash_ring))
     httpx_mock.add_response(
         json=varray.as_dict,
         method="GET",
