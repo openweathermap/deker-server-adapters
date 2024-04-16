@@ -13,7 +13,6 @@ from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
-from deker_server_adapters.utils import get_node_from_hash_ring
 
 
 if TYPE_CHECKING:
@@ -21,7 +20,7 @@ if TYPE_CHECKING:
 
 
 def test_read_meta_success(array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, ctx: CTX):
-    node = server_array_adapter.get_host_url(get_node_from_hash_ring(array, server_array_adapter.hash_ring))
+    node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
     httpx_mock.add_response(
         json=array.as_dict,
         method="GET",
@@ -32,25 +31,25 @@ def test_read_meta_success(array: Array, httpx_mock: HTTPXMock, server_array_ada
 
 def test_get_node_by_id(array: Array, server_array_adapter: ServerArrayAdapter, nodes_urls: List[str]):
     with patch.object(array, "primary_attributes", {}):
-        node = server_array_adapter.get_host_url(get_node_from_hash_ring(array, server_array_adapter.hash_ring))
+        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
         assert node in nodes_urls
 
 
 def test_get_node_by_primary(array: Array, server_array_adapter: ServerArrayAdapter, nodes_urls: List[str]):
     with patch.object(array, "primary_attributes", {"foo": "bar"}):
-        node = server_array_adapter.get_host_url(get_node_from_hash_ring(array, server_array_adapter.hash_ring))
+        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
         assert node in nodes_urls
 
 
 def test_get_node_give_same_result(array: Array, server_array_adapter: ServerArrayAdapter):
-    first_node = server_array_adapter.get_host_url(get_node_from_hash_ring(array, server_array_adapter.hash_ring))
+    first_node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
     for _ in range(10):
-        node = server_array_adapter.get_host_url(get_node_from_hash_ring(array, server_array_adapter.hash_ring))
+        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
         assert node == first_node
 
 
 def test_array_read_from_specific_node(array: Array, server_array_adapter: ServerArrayAdapter, httpx_mock: HTTPXMock):
-    host = server_array_adapter.get_host_url(get_node_from_hash_ring(array, server_array_adapter.hash_ring))
+    host = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
     httpx_mock.add_response(url=re.compile(host), content=np.zeros(shape=(1,)).tobytes())
     server_array_adapter.read_data(array, ...)
 
