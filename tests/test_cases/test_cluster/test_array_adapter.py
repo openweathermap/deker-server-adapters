@@ -13,14 +13,21 @@ from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
+from deker_server_adapters.utils.hashing import get_hash_key
 
 
 if TYPE_CHECKING:
     from httpx import Request
 
 
-def test_read_meta_success(array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, ctx: CTX):
-    node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
+def test_read_meta_success(
+    array: Array,
+    httpx_mock: HTTPXMock,
+    server_array_adapter: ServerArrayAdapter,
+    ctx: CTX,
+    mocked_filestatus_check_unmoved: None,
+):
+    node = server_array_adapter.hash_ring.get_node(get_hash_key(array)).url.raw_url
     httpx_mock.add_response(
         json=array.as_dict,
         method="GET",

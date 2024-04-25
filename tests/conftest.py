@@ -16,11 +16,12 @@ from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
+from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.factory import AdaptersFactory
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import get_api_version
+from deker_server_adapters.utils.version import get_api_version
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -50,7 +51,7 @@ def collection_path(base_uri: Uri, collection: Collection) -> Uri:
 
 
 @pytest.fixture()
-def ctx(mode, base_uri: Uri, nodes: List[str]) -> CTX:
+def ctx(mode, base_uri: Uri, nodes: List[dict], mocked_ping: dict) -> CTX:
     ctx = CTX(
         uri=base_uri,
         config=DekerConfig(
@@ -68,14 +69,7 @@ def ctx(mode, base_uri: Uri, nodes: List[str]) -> CTX:
         ctx.extra["httpx_client"] = client
 
         if mode == CLUSTER_MODE:
-            ctx.extra["hash_ring"] = HashRing([node["id"] for node in nodes])
-            ctx.extra["leader_node"] = Uri.create("http://localhost:8000")
-            ctx.extra["nodes_mapping"] = {
-                "8381202B-8C95-487A-B9B5-0B527056804E": ["http://localhost:8000"],
-                "8381202B-8C95-487A-B9B5-0B5270568040": ["http://localhost:8012"],
-            }
-            ctx.extra["nodes"] = ["http://localhost:8000", "http://localhost:8012"]
-            client.cluster_mode = True
+            apply_config(mocked_ping, ctx)
         yield ctx
 
 

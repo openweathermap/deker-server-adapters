@@ -9,7 +9,8 @@ from deker_server_adapters.base import BaseServerAdapterMixin
 from deker_server_adapters.consts import BAD_REQUEST, COLLECTION_NAME_PARAM, NOT_FOUND, STATUS_CREATED, STATUS_OK
 from deker_server_adapters.errors import DekerServerError
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import get_api_version, make_request
+from deker_server_adapters.utils.requests import make_request
+from deker_server_adapters.utils.version import get_api_version
 
 
 class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
