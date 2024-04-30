@@ -31,9 +31,8 @@ class DekerServerError(DekerBaseApplicationError):
         except JSONDecodeError:
             status = response.status_code  # type: ignore[union-attr]
             suffix = "..." if len(response.content) > self.MAX_ERROR_TEXT_SIZE else ""  # type: ignore[union-attr]
-            server_message = (
-                f"{response.content[:self.MAX_ERROR_TEXT_SIZE]!r}" f"{suffix}"  # type: ignore[union-attr,assignment]
-            )
+            content = response.content[: self.MAX_ERROR_TEXT_SIZE]  # type: ignore[union-attr,assignment]
+            server_message = f"{content!r}" f"{suffix}"  # type: ignore[union-attr,assignment]
 
         message = message or ""
         return f"{message} \nResponse: {status=}, message={server_message}"
