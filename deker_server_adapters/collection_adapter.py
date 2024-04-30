@@ -69,7 +69,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         """
         url = f"{self.collection_url_prefix}/{name}"
         if self.client.cluster_mode:
-            response = make_request(url=url, nodes=self.nodes, client=self.client)
+            response = make_request(url=url, nodes=self.nodes_urls, client=self.client)
         else:
             response = self.client.get(url)
 
@@ -118,7 +118,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         return False
 
     def __iter__(self) -> Generator[dict, None, None]:
-        nodes = self.nodes if self.client.cluster_mode else [str(self.client.base_url)]
+        nodes = [node.url.raw_url for node in self.nodes] if self.client.cluster_mode else [str(self.client.base_url)]
         all_collections_response = make_request(url=self.collections_url_prefix, nodes=nodes, client=self.client)
         if all_collections_response is None or all_collections_response.status_code != STATUS_OK:
             raise DekerServerError(

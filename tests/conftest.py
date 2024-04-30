@@ -1,7 +1,7 @@
 import re
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
+from typing import Dict, List, Literal
 from uuid import uuid4
 
 import pytest
@@ -173,8 +173,20 @@ def varray_collection_with_primary_attributes(
 
 
 @pytest.fixture()
+def primary_attributes() -> dict:
+    return {"foo": "bar"}
+
+
+@pytest.fixture()
 def array(collection: Collection, server_array_adapter: ServerArrayAdapter) -> Array:
     return Array(collection, server_array_adapter)
+
+
+@pytest.fixture()
+def array_with_attributes(
+    collection_with_primary_attributes: Collection, server_array_adapter: ServerArrayAdapter, primary_attributes: dict
+) -> Array:
+    return Array(collection_with_primary_attributes, server_array_adapter, primary_attributes=primary_attributes)
 
 
 @pytest.fixture()
@@ -191,6 +203,20 @@ def varray(varray_collection: Collection, adapter_factory: AdaptersFactory) -> V
 
 
 @pytest.fixture()
+def varray_with_attributes(
+    varray_collection_with_primary_attributes: Collection, adapter_factory: AdaptersFactory, primary_attributes: dict
+) -> VArray:
+    return VArray(
+        collection=varray_collection_with_primary_attributes,
+        adapter=adapter_factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter),
+        array_adapter=adapter_factory.get_array_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter),
+        primary_attributes=primary_attributes,
+        custom_attributes={},
+        id_=str(uuid4()),
+    )
+
+
+@pytest.fixture()
 def rate_limits_headers() -> Dict:
     return {"RateLimit-Limit": "10", "RateLimit-Remaining": "10", "RateLimit-Reset": "60"}
 
@@ -198,3 +224,9 @@ def rate_limits_headers() -> Dict:
 @pytest.fixture()
 def array_url_path(array: Array) -> str:
     return f"/{get_api_version()}/collection/{array.collection}/array/by-id/{array.id}"
+
+
+@pytest.fixture()
+def mock_status(mode: str, request: pytest.FixtureRequest):
+    if mode == CLUSTER_MODE:
+        request.getfixturevalue("mocked_filestatus_check_unmoved")

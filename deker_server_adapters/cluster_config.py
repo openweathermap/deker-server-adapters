@@ -31,7 +31,7 @@ class Node:
         return Uri.create(f"{self.protocol}://{self.host}:{self.port}")
 
     def __hash__(self) -> int:
-        """Use string repr as a Hash."""
+        """Use string form of the node as a Hash."""
         return hash(str(self))
 
     def __str__(self) -> str:

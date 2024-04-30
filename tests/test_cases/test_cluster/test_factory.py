@@ -1,5 +1,6 @@
 import re
 
+from dataclasses import asdict
 from typing import Dict
 
 import pytest
@@ -45,8 +46,12 @@ def test_ctx_has_values_from_server(ctx, mocked_ping: Dict, mock_ping):
     vadapter = factory.get_varray_adapter("/col", HDF5StorageAdapter)
     adapter = factory.get_array_adapter("/coll", HDF5StorageAdapter)
 
-    assert vadapter.hash_ring.nodes == [node["id"] for node in mocked_ping["current_nodes"]]
-    assert adapter.hash_ring.nodes == [node["id"] for node in mocked_ping["current_nodes"]]
+    assert sorted([asdict(node) for node in vadapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
+        [node for node in mocked_ping["current"]], key=lambda x: x["id"]
+    )
+    assert sorted([asdict(node) for node in adapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
+        [node for node in mocked_ping["current"]], key=lambda x: x["id"]
+    )
 
 
 def test_if_cluster_raises_error_on_empty_response(httpx_mock: HTTPXMock, ctx: CTX):
@@ -66,7 +71,7 @@ def test_factory_set_leader(ctx, mocked_ping, mock_ping):
     uri = Uri(**kwargs)
 
     factory = AdaptersFactory(ctx, uri)
-    leader = mocked_ping["current_nodes"][0]
+    leader = mocked_ping["current"][0]
     leader_url = f"{leader['protocol']}://{leader['host']}:{leader['port']}"
     assert str(factory.ctx.extra["httpx_client"].base_url) == leader_url
     collection_adapter = factory.get_collection_adapter()
@@ -80,5 +85,9 @@ def test_factory_get_config_from_single_server(ctx, mock_ping, mocked_ping):
     vadapter = factory.get_varray_adapter("/col", HDF5StorageAdapter)
     adapter = factory.get_array_adapter("/coll", HDF5StorageAdapter)
 
-    assert vadapter.hash_ring.nodes == [node["id"] for node in mocked_ping["current_nodes"]]
-    assert adapter.hash_ring.nodes == [node["id"] for node in mocked_ping["current_nodes"]]
+    assert sorted([asdict(node) for node in vadapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
+        [node for node in mocked_ping["current"]], key=lambda x: x["id"]
+    )
+    assert sorted([asdict(node) for node in adapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
+        [node for node in mocked_ping["current"]], key=lambda x: x["id"]
+    )

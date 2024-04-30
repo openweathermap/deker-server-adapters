@@ -70,7 +70,7 @@ class DekerDataPointsLimitError(DekerBaseRateLimitError):
     """If number of data points is too large."""
 
 
-class DekerClusterError(DekerBaseApplicationError):
+class DekerClusterError(DekerServerError):
     """If there is problem with cluster."""
 
 

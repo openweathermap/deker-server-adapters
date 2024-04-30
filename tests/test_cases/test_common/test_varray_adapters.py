@@ -84,53 +84,65 @@ def test_collection_raises_500(
 
 
 def test_read_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
-    httpx_mock.add_response(json=varray.as_dict)
+    httpx_mock.add_response(json=varray.as_dict, url=re.compile(r".*varray.*"))
     assert server_varray_adapter.read_meta(varray) == json.loads(json.dumps(varray.as_dict))
 
 
 def test_update_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
-    httpx_mock.add_response()
+    httpx_mock.add_response(url=re.compile(r".*varray.*"))
     assert server_varray_adapter.update_meta_custom_attributes(varray, {}) is None
 
 
 def test_delete_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
-    httpx_mock.add_response()
+    httpx_mock.add_response(url=re.compile(r".*varray.*"))
     assert server_varray_adapter.delete(varray) is None
 
 
-def test_read_data_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
+def test_read_data_success(
+    varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter, mock_status: None
+):
     data = np.zeros(shape=(1,))
-    httpx_mock.add_response(content=data.tobytes())
+    httpx_mock.add_response(content=data.tobytes(), url=re.compile(r".*varray.*"))
     assert server_varray_adapter.read_data(varray, np.index_exp[:]) == data
 
 
-def test_read_data_deker_timeout(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
-    httpx_mock.add_response(status_code=504)
+def test_read_data_deker_timeout(
+    varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter, mock_status: None
+):
+    httpx_mock.add_response(status_code=504, url=re.compile(r".*varray.*"))
     with pytest.raises(DekerTimeoutServer):
         server_varray_adapter.read_data(varray, np.index_exp[:])
 
 
-def test_update_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
+def test_update_success(
+    varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter, mock_status: None
+):
     data = np.zeros(shape=(1,))
-    httpx_mock.add_response()
+    httpx_mock.add_response(url=re.compile(r".*varray.*"))
     assert server_varray_adapter.update(varray, np.index_exp[:], data) is None
 
 
-def test_update_deker_timeout(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
-    httpx_mock.add_response(status_code=504)
+def test_update_deker_timeout(
+    varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter, mock_status: None
+):
+    httpx_mock.add_response(status_code=504, url=re.compile(r".*varray.*"))
     data = np.zeros(shape=(1,))
 
     with pytest.raises(DekerTimeoutServer):
         server_varray_adapter.update(varray, np.index_exp[:], data)
 
 
-def test_clear_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
-    httpx_mock.add_response()
+def test_clear_success(
+    varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter, mock_status: None
+):
+    httpx_mock.add_response(url=re.compile(r".*varray.*"))
     assert server_varray_adapter.clear(varray, np.index_exp[:]) is None
 
 
-def test_clear_deker_timeout(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
-    httpx_mock.add_response(status_code=504)
+def test_clear_deker_timeout(
+    varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter, mock_status: None
+):
+    httpx_mock.add_response(status_code=504, url=re.compile(r".*varray.*"))
 
     with pytest.raises(DekerTimeoutServer):
         server_varray_adapter.clear(varray, np.index_exp[:])
@@ -154,7 +166,8 @@ def test_read_data_single_number(
     httpx_mock: HTTPXMock,
     server_varray_adapter: ServerVarrayAdapter,
     collection: Collection,
+    mock_status: None,
 ):
     data = np.zeros(shape=(1,))
-    httpx_mock.add_response(content=data.tobytes())
+    httpx_mock.add_response(content=data.tobytes(), url=re.compile(r".*array.*"))
     assert server_varray_adapter.read_data(varray, np.index_exp[0]) == data[0]

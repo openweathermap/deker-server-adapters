@@ -17,6 +17,7 @@ from deker_tools.slices import slice_converter
 from httpx import Response, TimeoutException
 from numpy import ndarray
 
+from deker_server_adapters.cluster_config import ClusterConfig, Node
 from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer, FilteringByIdInClusterIsForbidden
 from deker_server_adapters.hash_ring import HashRing
@@ -66,12 +67,17 @@ class BaseServerAdapterMixin:
         return hash_ring  # type: ignore[attr-defined]
 
     @property
-    def nodes(self) -> List[str]:
+    def nodes(self) -> List[Node]:
         """Return list of nodes."""
-        nodes = self.ctx.extra["nodes"]  # type: ignore[attr-defined]
-        if not nodes:
-            raise AttributeError("Attempt to use cluster logic in single server mode")
-        return nodes
+        config: ClusterConfig = self.ctx.extra.get("cluster_config")  # type: ignore[attr-defined]
+        if not config:
+            return []
+        return config.current
+
+    @property
+    def nodes_urls(self) -> List[str]:
+        """Raw urls of the nodes."""
+        return [node.url.raw_url for node in self.nodes]
 
 
 class ServerArrayAdapterMixin(BaseServerAdapterMixin):
@@ -85,12 +91,16 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         :param node: Node to merge with
         """
-        return f"{node.rstrip('/')}{self.collection_path.netloc}"
+        return f"{node.rstrip('/')}{self.collection_path.path}"
 
     @property
     def collection_host(self) -> str:
         """Merge scheme with it's path."""
-        return f"{self.collection_path.scheme}://{self.collection_path.path}"
+        return (
+            f"{self.collection_path.scheme}"
+            f"{Uri.__annotations__['netloc']['separator']}"
+            f"{self.collection_path.netloc}"
+        )
 
     @property
     def path_stripped(self) -> str:
@@ -158,7 +168,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         # Only Varray can be located on different nodes yet.
         if self.type == ArrayType.varray and self.client.cluster_mode:
-            response = make_request(url=url, nodes=self.nodes, client=self.client)
+            response = make_request(url=url, nodes=self.nodes_urls, client=self.client)
         elif self.client.cluster_mode:
             response = request_in_cluster(url, array, self.ctx, True)
         else:
@@ -225,7 +235,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 response = request_in_cluster(url, array, self.ctx, should_check_status=True)
             else:
                 response = self.client.get(
-                    f"{self.collection_host}/by-id/{array.id}/subset/{bounds_}/data",
+                    f"{self.collection_host}{url}",
                     headers={"Accept": "application/octet-stream"},
                 )
         except TimeoutException:
@@ -252,33 +262,30 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param array: Array/Varray that will be updated
         :param bounds: Part of the array to update
         :param data: Data that will replace current values
-        :return:
         """
         bounds = slice_converter[bounds]
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data"
         request_kwargs = {"json": data}
+        if hasattr(data, "tolist"):
+            request_kwargs["json"] = data.tolist()
         # We write (v)array through the node it belongs in cluster
-        if self.client.cluster_mode:
-            response = request_in_cluster(
-                url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
-            )
-        else:
-            try:
-                if hasattr(data, "tolist"):
-                    request_kwargs["json"] = data.tolist()
-                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
-
-            except TimeoutException:
-                raise DekerTimeoutServer(
-                    message=f"Timeout on {self.type.name} update {array}",
+        try:
+            if self.client.cluster_mode:
+                response = request_in_cluster(
+                    url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
                 )
-        if response.status_code == STATUS_OK:
-            return
+            else:
+                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
+        except TimeoutException:
+            raise DekerTimeoutServer(
+                message=f"Timeout on {self.type.name} update {array}",
+            )
         if response.status_code == TIMEOUT:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} update {array}",
             )
-        raise DekerServerError(response, "Couldn't update array")
+        if not response or response.status_code != STATUS_OK:
+            raise DekerServerError(response, "Couldn't update array")
 
     def clear(self, array: "BaseArray", bounds: Slice) -> None:
         """Clear array/varray.
@@ -405,7 +412,9 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
     def __iter__(self) -> Generator["ArrayMeta", None, None]:
         urls = [f"{self.collection_path.raw_url}/{self.type.name}s"]
         if self.type == ArrayType.array and self.client.cluster_mode:
-            urls = [f"{self.__merge_node_and_collection_path(node)}/{self.type.name}s" for node in self.nodes]
+            urls = [
+                f"{self.__merge_node_and_collection_path(node.url.raw_url)}/{self.type.name}s" for node in self.nodes
+            ]
 
         for url in urls:
             response = self.client.get(url)

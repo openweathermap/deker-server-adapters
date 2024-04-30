@@ -55,7 +55,7 @@ def mocked_ping(nodes: List[Dict]) -> Dict:
     }
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def mock_healthcheck(httpx_mock: HTTPXMock, mocked_ping):
     httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping)
 
