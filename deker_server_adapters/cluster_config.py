@@ -20,10 +20,10 @@ CLUSTER_MODE = "cluster"
 class Node:
     """Node of cluster."""
 
-    id: str
     host: str
     port: str
     protocol: str = "http"
+    id: Optional[str] = None
 
     @cached_property
     def url(self) -> Uri:
@@ -36,7 +36,7 @@ class Node:
 
     def __str__(self) -> str:
         """String representation."""
-        return self.id
+        return self.id or ""
 
 
 @dataclass

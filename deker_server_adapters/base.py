@@ -71,7 +71,8 @@ class BaseServerAdapterMixin:
         """Return list of nodes."""
         config: ClusterConfig = self.ctx.extra.get("cluster_config")  # type: ignore[attr-defined]
         if not config:
-            return []
+            host, port = self.ctx.uri.netloc.split(":")
+            return [Node(host=host, port=port, protocol=self.ctx.uri.scheme)]
         return config.current
 
     @property

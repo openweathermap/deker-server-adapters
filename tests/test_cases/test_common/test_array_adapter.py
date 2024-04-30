@@ -108,7 +108,7 @@ def test_read_data_success(
 def test_read_non_array_data_success(
     array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None
 ):
-    httpx_mock.add_response(content=np.array(1).tobytes(), url=re.compile(r".*array.*"))
+    httpx_mock.add_response(content=np.array(1).tobytes(), url=re.compile(r".*subset.*"))
     res = server_array_adapter.read_data(array, np.index_exp[0])
     assert isinstance(res, array.dtype)
     assert server_array_adapter.read_data(array, np.index_exp[0]) == 1

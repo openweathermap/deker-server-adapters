@@ -15,3 +15,7 @@ def test_read_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_
         url=re.compile(f"{ctx.uri.raw_url.rstrip('/')}/v1/collection/{varray.collection}/varray/by-id/{varray.id}"),
     )
     assert server_varray_adapter.read_meta(varray) == json.loads(json.dumps(varray.as_dict))
+
+
+def test_nodes_returns_list_with_base_url(ctx, server_varray_adapter: ServerVarrayAdapter):
+    assert server_varray_adapter.nodes_urls == [ctx.uri.raw_url]

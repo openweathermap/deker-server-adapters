@@ -129,7 +129,10 @@ def collection_with_primary_attributes(
 ) -> Collection:
     array_schema = ArraySchema(
         dimensions=[DimensionSchema(name="x", size=1)],
-        attributes=[AttributeSchema(name="foo", dtype=str, primary=True)],
+        attributes=[
+            AttributeSchema(name="foo", dtype=str, primary=True),
+            AttributeSchema(name="bar", dtype=str, primary=True),
+        ],
         dtype=int,
     )
     return Collection(
@@ -161,7 +164,10 @@ def varray_collection_with_primary_attributes(
         dimensions=[DimensionSchema(name="x", size=1)],
         dtype=int,
         vgrid=(1,),
-        attributes=[AttributeSchema(name="foo", dtype=str, primary=True)],
+        attributes=[
+            AttributeSchema(name="foo", dtype=str, primary=True),
+            AttributeSchema(name="bar", dtype=str, primary=True),
+        ],
     )
     return Collection(
         name="test",
@@ -174,7 +180,7 @@ def varray_collection_with_primary_attributes(
 
 @pytest.fixture()
 def primary_attributes() -> dict:
-    return {"foo": "bar"}
+    return {"foo": "bar", "bar": "baz"}
 
 
 @pytest.fixture()
