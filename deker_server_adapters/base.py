@@ -131,9 +131,9 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         if self.type == ArrayType.array and self.client.cluster_mode:
             response = request_in_cluster(url, array, self.ctx, method="POST", request_kwargs=request_kwargs)
         else:
-            response = self.client.post(f"{self.collection_host}{url}", **request_kwargs)
+            response = self.client.post(f"{self.collection_host}{url}", **request_kwargs)  # type: ignore[arg-type]
 
-        if response.status_code != STATUS_CREATED:
+        if not response or response.status_code != STATUS_CREATED:
             raise DekerServerError(response, "Couldn't create an array")
 
         try:
@@ -198,8 +198,8 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
             )
         else:
-            response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
-        if response.status_code != STATUS_OK:
+            response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)  # type: ignore[arg-type]
+        if not response or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't update attributes")
 
     def delete(self, array: "BaseArray") -> None:
@@ -214,7 +214,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         else:
             response = self.client.delete(f"{self.collection_host}{url}")
 
-        if response.status_code != STATUS_OK:
+        if not response or response.status_code != STATUS_OK:
             raise DekerServerError(response, f"Couldn't delete the {self.type.name}")
 
     def read_data(
@@ -243,18 +243,18 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 message=f"Timeout on {self.type.name} read {array}",
             )
 
-        if response.status_code == STATUS_OK:
-            numpy_array = np.fromstring(response.read(), dtype=array.dtype)  # type: ignore[call-overload]
-            shape = array[bounds].shape
-            if not shape and numpy_array.size:
-                return numpy_array[0]
-
-            return numpy_array.reshape(shape)
+        if not response or response.status_code != STATUS_OK:
+            raise DekerServerError(response, "Couldn't read the array")
         if response.status_code == TIMEOUT:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} read {array}",
             )
-        raise DekerServerError(response, "Couldn't read the array")
+        numpy_array = np.fromstring(response.read(), dtype=array.dtype)  # type: ignore[call-overload]
+        shape = array[bounds].shape
+        if not shape and numpy_array.size:
+            return numpy_array[0]
+
+        return numpy_array.reshape(shape)
 
     def update(self, array: "BaseArray", bounds: Slice, data: Numeric) -> None:
         """Update array/varray on server.
@@ -280,12 +280,14 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} update {array}",
             )
+
+        if not response or response.status_code != STATUS_OK:
+            raise DekerServerError(response, "Couldn't update array")
+
         if response.status_code == TIMEOUT:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} update {array}",
             )
-        if not response or response.status_code != STATUS_OK:
-            raise DekerServerError(response, "Couldn't update array")
 
     def clear(self, array: "BaseArray", bounds: Slice) -> None:
         """Clear array/varray.
@@ -352,7 +354,8 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             response = self.client.get(
                 f"{self.collection_host}{url}",
             )
-
+        if not response or response.status_code != STATUS_OK:
+            raise DekerServerError(response, "Couldn't fetch array")
         return self.__create_array_from_response(
             response,
             dict(
@@ -398,6 +401,9 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             response = self.client.get(
                 f"{self.collection_host}{url}",
             )
+
+        if not response or response.status_code != STATUS_OK:
+            raise DekerServerError(response, "Couldn't fetch array")
 
         return self.__create_array_from_response(
             response,

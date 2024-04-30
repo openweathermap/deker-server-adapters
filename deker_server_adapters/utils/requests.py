@@ -94,7 +94,7 @@ def request_in_cluster(
     should_check_status: bool = False,
     method: str = "GET",
     request_kwargs: Optional[dict] = None,
-) -> Response:
+) -> Optional[Response]:
     """Make request in cluster.
 
     Before sending request, it retrieves a fresh config from the server.

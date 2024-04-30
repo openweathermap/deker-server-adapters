@@ -78,7 +78,7 @@ class ClusterConfig:
             leader = leader or target_leader
 
         if not leader:
-            raise DekerClusterError("No leader has been found")
+            raise DekerClusterError(None, "No leader has been found")
 
         return cls(mode=cluster_config_dict["mode"], leader=leader, current=current, target=target or None)
 
