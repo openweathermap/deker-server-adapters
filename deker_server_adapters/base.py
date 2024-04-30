@@ -243,7 +243,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 message=f"Timeout on {self.type.name} read {array}",
             )
 
-        if not response:
+        if not response or response.status_code not in [STATUS_OK, TIMEOUT]:
             raise DekerServerError(response, "Couldn't read the array")
 
         if response.status_code == TIMEOUT:
@@ -282,7 +282,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 message=f"Timeout on {self.type.name} update {array}",
             )
 
-        if not response:
+        if not response or response.status_code not in [STATUS_OK, TIMEOUT]:
             raise DekerServerError(response, "Couldn't update array")
 
         if response.status_code == TIMEOUT:
