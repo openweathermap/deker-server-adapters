@@ -13,14 +13,21 @@ from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
+from deker_server_adapters.utils.hashing import get_hash_key
 
 
 if TYPE_CHECKING:
     from httpx import Request
 
 
-def test_read_meta_success(array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, ctx: CTX):
-    node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
+def test_read_meta_success(
+    array: Array,
+    httpx_mock: HTTPXMock,
+    server_array_adapter: ServerArrayAdapter,
+    ctx: CTX,
+    mocked_filestatus_check_unmoved: None,
+):
+    node = server_array_adapter.hash_ring.get_node(get_hash_key(array)).url.raw_url
     httpx_mock.add_response(
         json=array.as_dict,
         method="GET",
@@ -29,28 +36,11 @@ def test_read_meta_success(array: Array, httpx_mock: HTTPXMock, server_array_ada
     assert server_array_adapter.read_meta(array) == json.loads(json.dumps(array.as_dict))
 
 
-def test_get_node_by_id(array: Array, server_array_adapter: ServerArrayAdapter, nodes_urls: List[str]):
-    with patch.object(array, "primary_attributes", {}):
-        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
-        assert node in nodes_urls
-
-
-def test_get_node_by_primary(array: Array, server_array_adapter: ServerArrayAdapter, nodes_urls: List[str]):
-    with patch.object(array, "primary_attributes", {"foo": "bar"}):
-        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
-        assert node in nodes_urls
-
-
-def test_get_node_give_same_result(array: Array, server_array_adapter: ServerArrayAdapter):
-    first_node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
-    for _ in range(10):
-        node = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
-        assert node == first_node
-
-
-def test_array_read_from_specific_node(array: Array, server_array_adapter: ServerArrayAdapter, httpx_mock: HTTPXMock):
-    host = server_array_adapter.get_host_url(server_array_adapter.get_node(array))
-    httpx_mock.add_response(url=re.compile(host), content=np.zeros(shape=(1,)).tobytes())
+def test_array_read_from_specific_node(
+    array: Array, server_array_adapter: ServerArrayAdapter, httpx_mock: HTTPXMock, mocked_filestatus_check_unmoved: None
+):
+    host = server_array_adapter.hash_ring.get_node(get_hash_key(array)).url.raw_url
+    httpx_mock.add_response(url=re.compile(f"{host}.*array.*"), content=np.zeros(shape=(1,)).tobytes())
     server_array_adapter.read_data(array, ...)
 
 
@@ -72,7 +62,7 @@ def test_iter_success(
 ):
     for index, node in enumerate(server_array_adapter.nodes):
         response = [] if index == 0 else [array.as_dict]
-        httpx_mock.add_response(url=re.compile(node), json=response)
+        httpx_mock.add_response(url=re.compile(node.url.raw_url), json=response)
 
     arrays = []
     for array_ in server_array_adapter:
