@@ -46,7 +46,7 @@ def test_array_generate_id(
     varray: VArray,
     server_varray_adapter: ServerVarrayAdapter,
     httpx_mock,
-    collection,
+    varray_collection,
     server_array_adapter: ServerArrayAdapter,
 ):
     httpx_mock.add_response(method="POST", json=varray.as_dict, status_code=201)
@@ -56,7 +56,7 @@ def test_array_generate_id(
         {
             **data,
             "adapter": server_varray_adapter,
-            "collection": collection,
+            "collection": varray_collection,
             "array_adapter": server_array_adapter,
         }
     )
