@@ -130,21 +130,23 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
     def create(self, array: Union[dict, "BaseArray"]) -> BaseArray:
         """Create array on server.
 
-        :param array: Array instance
-        :return:
+        :param array: Array instance or dict
         """
-        kwargs = {
-            "primary_attributes": convert_datetime_attrs_to_iso(
-                array["primary_attributes"],
-            ),
-            "custom_attributes": convert_datetime_attrs_to_iso(
-                array["custom_attributes"],
-            ),
-        }
-
         if isinstance(array, dict):
-            kwargs["id_"] = array.get("id_") or (self.client.cluster_mode and get_id() or None)
-            array["id_"] = kwargs["id_"]
+            primary_attributes = array["primary_attributes"]
+            custom_attributes = array["custom_attributes"]
+            id_ = array.get("id_") or (self.client.cluster_mode and get_id() or None)
+            array["id_"] = id_
+        else:
+            primary_attributes = array.primary_attributes
+            custom_attributes = array.custom_attributes
+            id_ = array.id
+
+        kwargs = {
+            "primary_attributes": convert_datetime_attrs_to_iso(primary_attributes),
+            "custom_attributes": convert_datetime_attrs_to_iso(custom_attributes),
+            "id_": id_,
+        }
 
         path = self.collection_path.raw_url.rstrip("/")
 
@@ -162,22 +164,24 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         except JSONDecodeError:
             raise DekerServerError(response, "Couldn't parse json")
 
-        instance_id = data.get("id")
-        if not instance_id:
-            raise DekerServerError(response, "Server response doesn't contain ID field")
+        if isinstance(array, dict):
+            instance_id = data.get("id")
+            if not instance_id:
+                raise DekerServerError(response, "Server response doesn't contain ID field")
 
-        kwargs = {
-            "collection": array["collection"],
-            "adapter": array["adapter"],
-            "id_": instance_id,
-            "primary_attributes": array["primary_attributes"],
-            "custom_attributes": array["custom_attributes"],
-        }
+            kwargs = {
+                "collection": array["collection"],
+                "adapter": array["adapter"],
+                "id_": instance_id,
+                "primary_attributes": array["primary_attributes"],
+                "custom_attributes": array["custom_attributes"],
+            }
 
-        model = self.type.value
-        if model == VArray:
-            kwargs["array_adapter"] = array["array_adapter"]
-        return model(**kwargs)
+            model = self.type.value
+            if model == VArray:
+                kwargs["array_adapter"] = array["array_adapter"]
+            return model(**kwargs)
+        return array
 
     def read_meta(self, array: "BaseArray") -> ArrayMeta:
         """Read metadata of (v)array.
