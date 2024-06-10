@@ -2,10 +2,14 @@ import hashlib
 import math
 
 from bisect import bisect
-from typing import Callable, Generator, List, Optional, Set, Tuple, Union
+from typing import Callable, Generator, List, Optional, Set, Tuple, TypeVar, Union
+
+from deker_server_adapters.errors import HashRingError
 
 
 md5_constructor = hashlib.md5
+
+T = TypeVar("T")
 
 
 class HashRing:
@@ -43,7 +47,7 @@ class HashRing:
 
         self._sorted_keys.sort()
 
-    def __init__(self, nodes: Union[List, Tuple, Set], weights: Optional[dict] = None):
+    def __init__(self, nodes: Union[List[T], Tuple[T, ...], Set[T]], weights: Optional[dict] = None):
         """Generare instace of hash ring with given nodes.
 
         :param nodes: is a list of objects that have a proper __str__ representation.
@@ -53,7 +57,7 @@ class HashRing:
         self.ring = {}  # type: ignore[var-annotated]
         self._sorted_keys = []  # type: ignore[var-annotated]
 
-        self.nodes = nodes
+        self.nodes: Union[List[T], Tuple[T, ...], Set[T]] = nodes
 
         if not weights:
             weights = {}  # type: ignore[var-annotated]
@@ -61,7 +65,7 @@ class HashRing:
 
         self._generate_circle()
 
-    def get_node(self, string_key: str) -> Optional[str]:
+    def get_node(self, string_key: str) -> T:  # type: ignore[type-var]
         """Return hash ring by given a string key a corresponding node.
 
         If the hash ring is empty, `None` is returned.
@@ -69,7 +73,7 @@ class HashRing:
         """
         pos = self.get_node_pos(string_key)
         if pos is None:
-            return None
+            raise HashRingError(f"Couldn't find a position in {self.ring}")
         return self.ring[self._sorted_keys[pos]]
 
     def get_node_pos(self, string_key: str) -> Optional[int]:

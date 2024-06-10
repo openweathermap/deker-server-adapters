@@ -1,7 +1,7 @@
 import re
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List
+from typing import Dict, List, Literal
 from uuid import uuid4
 
 import pytest
@@ -16,11 +16,12 @@ from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
+from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.factory import AdaptersFactory
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import get_api_version
+from deker_server_adapters.utils.version import get_api_version
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -50,7 +51,7 @@ def collection_path(base_uri: Uri, collection: Collection) -> Uri:
 
 
 @pytest.fixture()
-def ctx(mode, base_uri: Uri, nodes: List[str]) -> CTX:
+def ctx(mode, base_uri: Uri, nodes: List[dict], mocked_ping: dict) -> CTX:
     ctx = CTX(
         uri=base_uri,
         config=DekerConfig(
@@ -68,14 +69,7 @@ def ctx(mode, base_uri: Uri, nodes: List[str]) -> CTX:
         ctx.extra["httpx_client"] = client
 
         if mode == CLUSTER_MODE:
-            ctx.extra["hash_ring"] = HashRing([node["id"] for node in nodes])
-            ctx.extra["leader_node"] = Uri.create("http://localhost:8000")
-            ctx.extra["nodes_mapping"] = {
-                "8381202B-8C95-487A-B9B5-0B527056804E": ["http://localhost:8000"],
-                "8381202B-8C95-487A-B9B5-0B5270568040": ["http://localhost:8012"],
-            }
-            ctx.extra["nodes"] = ["http://localhost:8000", "http://localhost:8012"]
-            client.cluster_mode = True
+            apply_config(mocked_ping, ctx)
         yield ctx
 
 
@@ -135,7 +129,10 @@ def collection_with_primary_attributes(
 ) -> Collection:
     array_schema = ArraySchema(
         dimensions=[DimensionSchema(name="x", size=1)],
-        attributes=[AttributeSchema(name="foo", dtype=str, primary=True)],
+        attributes=[
+            AttributeSchema(name="foo", dtype=str, primary=True),
+            AttributeSchema(name="bar", dtype=str, primary=True),
+        ],
         dtype=int,
     )
     return Collection(
@@ -167,7 +164,10 @@ def varray_collection_with_primary_attributes(
         dimensions=[DimensionSchema(name="x", size=1)],
         dtype=int,
         vgrid=(1,),
-        attributes=[AttributeSchema(name="foo", dtype=str, primary=True)],
+        attributes=[
+            AttributeSchema(name="foo", dtype=str, primary=True),
+            AttributeSchema(name="bar", dtype=str, primary=True),
+        ],
     )
     return Collection(
         name="test",
@@ -179,8 +179,20 @@ def varray_collection_with_primary_attributes(
 
 
 @pytest.fixture()
+def primary_attributes() -> dict:
+    return {"foo": "bar", "bar": "baz"}
+
+
+@pytest.fixture()
 def array(collection: Collection, server_array_adapter: ServerArrayAdapter) -> Array:
     return Array(collection, server_array_adapter)
+
+
+@pytest.fixture()
+def array_with_attributes(
+    collection_with_primary_attributes: Collection, server_array_adapter: ServerArrayAdapter, primary_attributes: dict
+) -> Array:
+    return Array(collection_with_primary_attributes, server_array_adapter, primary_attributes=primary_attributes)
 
 
 @pytest.fixture()
@@ -197,6 +209,20 @@ def varray(varray_collection: Collection, adapter_factory: AdaptersFactory) -> V
 
 
 @pytest.fixture()
+def varray_with_attributes(
+    varray_collection_with_primary_attributes: Collection, adapter_factory: AdaptersFactory, primary_attributes: dict
+) -> VArray:
+    return VArray(
+        collection=varray_collection_with_primary_attributes,
+        adapter=adapter_factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter),
+        array_adapter=adapter_factory.get_array_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter),
+        primary_attributes=primary_attributes,
+        custom_attributes={},
+        id_=str(uuid4()),
+    )
+
+
+@pytest.fixture()
 def rate_limits_headers() -> Dict:
     return {"RateLimit-Limit": "10", "RateLimit-Remaining": "10", "RateLimit-Reset": "60"}
 
@@ -204,3 +230,9 @@ def rate_limits_headers() -> Dict:
 @pytest.fixture()
 def array_url_path(array: Array) -> str:
     return f"/{get_api_version()}/collection/{array.collection}/array/by-id/{array.id}"
+
+
+@pytest.fixture()
+def mock_status(mode: str, request: pytest.FixtureRequest):
+    if mode == CLUSTER_MODE:
+        request.getfixturevalue("mocked_filestatus_check_unmoved")
