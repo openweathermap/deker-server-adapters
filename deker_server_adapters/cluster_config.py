@@ -12,7 +12,6 @@ from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.utils.requests import make_request
 from deker_server_adapters.utils.version import get_api_version
 
-
 CLUSTER_MODE = "cluster"
 
 
@@ -44,9 +43,9 @@ class ClusterConfig:
     """Normal mode of cluster config."""
 
     mode: str
-    leader: Node  # UUID
+    leader: Node
     current: List[Node]
-    target: Optional[List[Node]] = None  # Only appears when clust in rebalancing mode
+    target: Optional[List[Node]] = None  # Only appears when cluster in rebalancing mode
 
     __hash_ring: HashRing = field(init=False)
     __hash_ring_target: HashRing = field(init=False)
@@ -58,29 +57,24 @@ class ClusterConfig:
         :param cluster_config_dict: Cluster configuration that comes from server.
         """
         leader_id = cluster_config_dict["leader_id"]
-        current: List[Node] = []
-        target: List[Node] = []
 
-        def process_nodes(nodes: List[dict], out: List[Node]) -> Optional[Node]:
-            _leader = None
-            for node_dict in nodes:
-                node = Node(**node_dict)
-                out.append(node)
-                if node.id == leader_id:
-                    _leader = node
-            out.sort(key=lambda x: str(x))
-            return _leader
+        def _process_nodes(nodes: List[dict]) -> List[Node]:
+            node_list = [Node(**node_dict) for node_dict in nodes]
+            node_list.sort(key=lambda x: str(x))
+            return node_list
 
-        leader = process_nodes(cluster_config_dict["current"], current)
-        if "target" in cluster_config_dict:
-            # If leader is found on the target list, and not current
-            target_leader = process_nodes(cluster_config_dict["target"], target)
-            leader = leader or target_leader
+        # cluster always returns all current RAFT nodes, thus we don't need to check target config to know the leader
+        # we won't need RAFT cluster config after getting the leader
+        raft_nodes = _process_nodes(cluster_config_dict["raft"], None)
+        leader = next((node for node in raft_nodes if node.id == leader_id), None)
 
         if not leader:
             raise DekerClusterError(None, "No leader has been found")
 
-        return cls(mode=cluster_config_dict["mode"], leader=leader, current=current, target=target or None)
+        current = _process_nodes(cluster_config_dict["current"])
+        target = _process_nodes(cluster_config_dict["target"]) if "target" in cluster_config_dict else None
+
+        return cls(mode=cluster_config_dict["mode"], leader=leader, current=current, target=target)
 
 
 def request_config(ctx: CTX) -> dict:  # type: ignore[return-value]
