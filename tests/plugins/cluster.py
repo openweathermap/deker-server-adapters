@@ -52,6 +52,7 @@ def mocked_ping(nodes: List[Dict]) -> Dict:
         "this_id": "8381202B-8C95-487A-B9B5-0B527056804E",
         "leader_id": "8381202B-8C95-487A-B9B5-0B527056804E",
         "current": nodes,
+        "raft": nodes
     }
 
 

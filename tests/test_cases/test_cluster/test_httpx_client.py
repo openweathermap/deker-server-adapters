@@ -21,7 +21,15 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
                 "host": "newhost.owm.io",
                 "port": 80,
                 "protocol": "http",
-            },
+            }
+        ],
+        "raft": [
+            {
+                "id": "8381202B-8C95-487A-B9B5-0B527056804A",
+                "host": "newhost.owm.io",
+                "port": 80,
+                "protocol": "http",
+            }
         ],
     }
     # Error
