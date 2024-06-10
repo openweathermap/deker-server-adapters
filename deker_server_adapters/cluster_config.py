@@ -58,21 +58,21 @@ class ClusterConfig:
         """
         leader_id = cluster_config_dict["leader_id"]
 
-        def _process_nodes(nodes: List[dict]) -> List[Node]:
+        def process_nodes(nodes: List[dict]) -> List[Node]:
             node_list = [Node(**node_dict) for node_dict in nodes]
             node_list.sort(key=lambda x: str(x))
             return node_list
 
         # cluster always returns all current RAFT nodes, thus we don't need to check target config to know the leader
         # we won't need RAFT cluster config after getting the leader
-        raft_nodes = _process_nodes(cluster_config_dict["raft"], None)
+        raft_nodes = process_nodes(cluster_config_dict["raft"])
         leader = next((node for node in raft_nodes if node.id == leader_id), None)
 
         if not leader:
             raise DekerClusterError(None, "No leader has been found")
 
-        current = _process_nodes(cluster_config_dict["current"])
-        target = _process_nodes(cluster_config_dict["target"]) if "target" in cluster_config_dict else None
+        current = process_nodes(cluster_config_dict["current"])
+        target = process_nodes(cluster_config_dict["target"]) if "target" in cluster_config_dict else None
 
         return cls(mode=cluster_config_dict["mode"], leader=leader, current=current, target=target)
 
