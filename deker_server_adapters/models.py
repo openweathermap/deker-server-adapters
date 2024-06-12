@@ -6,3 +6,4 @@ class Status(str, Enum):
 
     MOVED = "exported"
     UNMOVED = "exporting"
+    NORMAL = "normal"

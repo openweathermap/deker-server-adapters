@@ -360,8 +360,10 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             response = self.client.get(
                 f"{self.collection_host}{url}",
             )
-        if not response or response.status_code != STATUS_OK:
+        if not response or response.status_code not in [STATUS_OK, NOT_FOUND]:
             raise DekerServerError(response, "Couldn't fetch array")
+        if response.status_code == NOT_FOUND:
+            return None
         return self.__create_array_from_response(
             response,
             dict(
@@ -408,8 +410,11 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 f"{self.collection_host}{url}",
             )
 
-        if not response or response.status_code != STATUS_OK:
+        if not response or response.status_code not in [STATUS_OK, NOT_FOUND]:
             raise DekerServerError(response, "Couldn't fetch array")
+
+        if response.status_code == NOT_FOUND:
+            return None
 
         return self.__create_array_from_response(
             response,
