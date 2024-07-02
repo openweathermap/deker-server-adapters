@@ -237,7 +237,13 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data"
         try:
             if self.client.cluster_mode:
-                response = request_in_cluster(url, array, self.ctx, should_check_status=True)
+                response = request_in_cluster(
+                    url,
+                    array,
+                    self.ctx,
+                    should_check_status=True,
+                    request_kwargs={"headers": {"Accept": "application/octet-stream"}},
+                )
             else:
                 response = self.client.get(
                     f"{self.collection_host}{url}",
@@ -255,6 +261,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} read {array}",
             )
+
         numpy_array = np.fromstring(response.read(), dtype=array.dtype)  # type: ignore[call-overload]
         shape = array[bounds].shape
         if not shape and numpy_array.size:

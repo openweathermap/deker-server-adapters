@@ -53,7 +53,6 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         """
         data = collection.as_dict
         response = self.client.post(f"/{self.collections_url_prefix}", json=data)
-
         if response.status_code == STATUS_CREATED:
             return
 

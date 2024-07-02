@@ -81,11 +81,9 @@ def check_status(ctx: CTX, array: BaseArray) -> Status:
     id_, _ = get_id_and_primary_attributes(array)
     url = node.url / f"{get_api_version()}/cluster/collection/{array.collection}/array/by-id/{id_}/status"
     response = client.get(url.raw_url)
-
     if not response or response.status_code != STATUS_OK:
         raise DekerServerError(response, "File status check failed")
-
-    return Status(response.text)
+    return Status(response.text.replace('"', ""))
 
 
 def request_in_cluster(
