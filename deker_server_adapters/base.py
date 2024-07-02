@@ -255,7 +255,8 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} read {array}",
             )
-        numpy_array = np.fromstring(response.read(), dtype=array.dtype)  # type: ignore[call-overload]
+        decoded_response = response.read().decode("unicode-escape").replace("[", "").replace("]", "")
+        numpy_array = np.fromstring(decoded_response, dtype=array.dtype, sep=",")  # type: ignore[call-overload]
         shape = array[bounds].shape
         if not shape and numpy_array.size:
             return numpy_array[0]
