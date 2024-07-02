@@ -12,6 +12,7 @@ from deker_server_adapters.consts import STATUS_OK
 from deker_server_adapters.errors import DekerServerError
 from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key, get_id_and_primary_attributes
+from deker_server_adapters.utils.version import get_api_version
 
 
 if TYPE_CHECKING:
@@ -78,7 +79,7 @@ def check_status(ctx: CTX, array: BaseArray) -> Status:
     client: "HttpxClient" = ctx.extra["httpx_client"]
     node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
     id_, _ = get_id_and_primary_attributes(array)
-    url = node.url / f"/cluster/collection/{array.collection}/array/by-id/{id_}/status"
+    url = node.url / f"{get_api_version()}/cluster/collection/{array.collection}/array/by-id/{id_}/status"
     response = client.get(url.raw_url)
 
     if not response or response.status_code != STATUS_OK:
