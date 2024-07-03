@@ -445,17 +445,17 @@ files = [
 
 [[package]]
 name = "deker"
-version = "1.1.6"
+version = "1.1.7"
 description = "Multidimensional arrays storage engine"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "deker-1.1.6.tar.gz", hash = "sha256:3dd3656bc935d5d1f52f01a87e7401e05214f382cf3b0b98cf80e65ad615db34"},
+    {file = "deker-1.1.7.tar.gz", hash = "sha256:d27809d167a9d55ecce8f020e7204f5bae63478470ab9abc55b404391d2ef486"},
 ]
 
 [package.dependencies]
 attrs = ">=23.1.0,<24.0.0"
-deker-local-adapters = ">=1.1.1,<2.0.0"
+deker-local-adapters = ">=1.1.2,<2.0.0"
 psutil = ">=5.9.5,<6.0.0"
 tqdm = ">=4.64.1,<5.0.0"
 typing-extensions = ">=4.4.0,<5.0.0"
@@ -468,12 +468,12 @@ xarray = ["xarray (>=2023.5.0,<2024.0.0)"]
 
 [[package]]
 name = "deker-local-adapters"
-version = "1.1.1"
+version = "1.1.2"
 description = "Plugin with local adapters for deker"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "deker_local_adapters-1.1.1.tar.gz", hash = "sha256:c3d5ec08bf479e5c7852a263f127e6896b38507ec34f7337eb6bc41305cb1143"},
+    {file = "deker_local_adapters-1.1.2.tar.gz", hash = "sha256:6da650da5129fe5d2ad2e8e75e1186e78f6396d8322a55505747237d7f4bd9cf"},
 ]
 
 [package.dependencies]
