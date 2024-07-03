@@ -1,5 +1,5 @@
 from json import JSONDecodeError
-from typing import Optional
+from typing import Optional, Union
 
 from deker.errors import DekerBaseApplicationError
 from httpx import Response
@@ -12,7 +12,7 @@ class DekerServerError(DekerBaseApplicationError):
 
     def _make_response_from_response(
         self,
-        response: Response,
+        response: Union[Response, dict],
         message: Optional[str] = None,
     ) -> str:
         """Make an Exception message based on response and provided text.
@@ -21,17 +21,25 @@ class DekerServerError(DekerBaseApplicationError):
         :param message: Provided message
         """
         try:
-            server_message = response.json()
+            if isinstance(response, dict):
+                status = None
+                server_message = response
+            else:
+                status = response.status_code
+                server_message = response.json()
+
         except JSONDecodeError:
-            suffix = "..." if len(response.content) > self.MAX_ERROR_TEXT_SIZE else ""
-            server_message = f"{response.content[:self.MAX_ERROR_TEXT_SIZE]!r}{suffix}"
+            status = response.status_code  # type: ignore[union-attr]
+            suffix = "..." if len(response.content) > self.MAX_ERROR_TEXT_SIZE else ""  # type: ignore[union-attr]
+            content = response.content[: self.MAX_ERROR_TEXT_SIZE]  # type: ignore[union-attr,assignment]
+            server_message = f"{content!r}" f"{suffix}"  # type: ignore[union-attr,assignment]
 
         message = message or ""
-        return f"{message} \nResponse: status={response.status_code}, message={server_message}"
+        return f"{message} \nResponse: {status=}, message={server_message}"
 
     def __init__(
         self,
-        response: Optional[Response] = None,
+        response: Optional[Union[Response, dict]] = None,
         message: Optional[str] = None,
     ) -> None:
         if response:
@@ -70,7 +78,7 @@ class DekerDataPointsLimitError(DekerBaseRateLimitError):
     """If number of data points is too large."""
 
 
-class DekerClusterError(DekerBaseApplicationError):
+class DekerClusterError(DekerServerError):
     """If there is problem with cluster."""
 
 

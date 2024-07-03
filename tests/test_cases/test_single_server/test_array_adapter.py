@@ -27,3 +27,7 @@ def test_iter_success(array: Array, httpx_mock: HTTPXMock, server_array_adapter:
         arrays.append(array_)
 
     assert arrays == [json.loads(json.dumps(array.as_dict))]
+
+
+def test_nodes_returns_list_with_base_url(ctx, server_array_adapter: ServerArrayAdapter):
+    assert server_array_adapter.nodes_urls == [ctx.uri.raw_url]

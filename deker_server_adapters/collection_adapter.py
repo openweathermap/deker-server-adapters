@@ -9,7 +9,8 @@ from deker_server_adapters.base import BaseServerAdapterMixin
 from deker_server_adapters.consts import BAD_REQUEST, COLLECTION_NAME_PARAM, NOT_FOUND, STATUS_CREATED, STATUS_OK
 from deker_server_adapters.errors import DekerServerError
 from deker_server_adapters.httpx_client import HttpxClient
-from deker_server_adapters.utils import get_api_version, make_request
+from deker_server_adapters.utils.requests import make_request
+from deker_server_adapters.utils.version import get_api_version
 
 
 class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
@@ -52,7 +53,6 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         """
         data = collection.as_dict
         response = self.client.post(f"/{self.collections_url_prefix}", json=data)
-
         if response.status_code == STATUS_CREATED:
             return
 
@@ -68,7 +68,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         """
         url = f"{self.collection_url_prefix}/{name}"
         if self.client.cluster_mode:
-            response = make_request(url=url, nodes=self.nodes, client=self.client)
+            response = make_request(url=url, nodes=self.nodes_urls, client=self.client)
         else:
             response = self.client.get(url)
 
@@ -117,7 +117,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         return False
 
     def __iter__(self) -> Generator[dict, None, None]:
-        nodes = self.nodes if self.client.cluster_mode else [str(self.client.base_url)]
+        nodes = [node.url.raw_url for node in self.nodes] if self.client.cluster_mode else [str(self.client.base_url)]
         all_collections_response = make_request(url=self.collections_url_prefix, nodes=nodes, client=self.client)
         if all_collections_response is None or all_collections_response.status_code != STATUS_OK:
             raise DekerServerError(
