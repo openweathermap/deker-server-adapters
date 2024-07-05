@@ -234,3 +234,13 @@ def test_read_data_single_number(
     data = np.zeros(shape=(1,))
     httpx_mock.add_response(content=data.tobytes(), url=re.compile(r".*array.*"))
     assert server_array_adapter.read_data(array, np.index_exp[0]) == data[0]
+
+
+def test_read_data_single_number(
+    array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, collection: Collection, mock_status
+):
+    data = np.zeros(shape=(1,))
+    httpx_mock.add_response(content=data.tobytes(), url=re.compile(r".*array.*"))
+    read_data = server_array_adapter.read_data(array, np.index_exp[:])
+    read_data[0] = 0
+    assert read_data[0] == 0
