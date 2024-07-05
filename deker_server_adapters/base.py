@@ -262,7 +262,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 message=f"Timeout on {self.type.name} read {array}",
             )
 
-        numpy_array = np.frombuffer(response.read(), dtype=array.dtype)  # type: ignore[call-overload]
+        numpy_array = np.frombuffer(bytearray(response.read()), dtype=array.dtype)  # type: ignore[call-overload]
         shape = array[bounds].shape
         if not shape and numpy_array.size:
             return numpy_array[0]
