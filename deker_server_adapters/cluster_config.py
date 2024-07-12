@@ -23,6 +23,7 @@ class Node:
     port: str
     protocol: str = "http"
     id: Optional[str] = None
+    storage: Optional[str] = None
 
     @cached_property
     def url(self) -> Uri:
