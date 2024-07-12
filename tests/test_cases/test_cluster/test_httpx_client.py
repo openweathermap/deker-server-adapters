@@ -2,7 +2,6 @@ import re
 
 from deker import VArray
 from deker.ctx import CTX
-from deker.uri import Uri
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.consts import NON_LEADER_WRITE
@@ -21,6 +20,7 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
                 "host": "newhost.owm.io",
                 "port": 80,
                 "protocol": "http",
+                "storage": "file:///tmp/deker_server"
             }
         ],
         "raft": [
@@ -29,6 +29,7 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
                 "host": "newhost.owm.io",
                 "port": 80,
                 "protocol": "http",
+                "storage": "file:///tmp/deker_server"
             }
         ],
     }
