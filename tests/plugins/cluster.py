@@ -18,12 +18,14 @@ def nodes() -> List[Dict]:
             "host": "localhost",
             "port": 8000,
             "protocol": "http",
+            "storage": "file:///tmp/deker_server"
         },
         {
             "id": "8381202B-8C95-487A-B9B5-0B5270568040",
             "host": "localhost",
             "port": 8012,
             "protocol": "http",
+            "storage": "file:///tmp/deker_server"
         },
     ]
 
