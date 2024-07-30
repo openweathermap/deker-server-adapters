@@ -22,6 +22,7 @@ TOO_LARGE_ERROR_MESSAGE = "Requested object is too large, use smaller subset"
 EXCEPTION_CLASS_PARAM_NAME = "class"
 LAST_MODIFIED_HEADER = "last-modified"
 REBALANCING_STATUS = "rebalancing"
+NORMAL_STATUS = "normal"
 
 
 class ArrayType(Enum):

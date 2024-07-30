@@ -2,7 +2,6 @@ import json
 import re
 
 from typing import TYPE_CHECKING, List
-from unittest.mock import patch
 
 import httpx
 import numpy as np
@@ -15,6 +14,7 @@ from pytest_httpx import HTTPXMock
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
+from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key
 
 
@@ -78,7 +78,7 @@ def test_filter_by_id_is_not_allowed(collection_with_primary_attributes):
         collection_with_primary_attributes.filter({"id": "foo"}).last()
 
 
-def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mocked_ping, array):
+def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mocked_ping, array, status: str):
     class RequestCounter:
         def __init__(self):
             self.count = 0
@@ -95,6 +95,9 @@ def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAd
                 return httpx.Response(409, json=mocked_ping, headers={LAST_MODIFIED_HEADER: "new-hash"})
             else:
                 return httpx.Response(200, json=data)
+
+        elif "status" in str(request.url):
+            return httpx.Response(text=Status.UNMOVED.value, status_code=200)
 
         return httpx.Response(404, json={"error": "Not found"})
 

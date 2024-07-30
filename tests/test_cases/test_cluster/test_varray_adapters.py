@@ -14,6 +14,7 @@ from pytest_httpx import HTTPXMock
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
+from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
@@ -101,6 +102,9 @@ def test_hash_updated(httpx_mock: HTTPXMock, server_varray_adapter: ServerArrayA
                 return httpx.Response(409, json=mocked_ping, headers={LAST_MODIFIED_HEADER: "new-hash"})
             else:
                 return httpx.Response(200, json=data)
+
+        elif "status" in str(request.url):
+            return httpx.Response(text=Status.UNMOVED.value)
 
         return httpx.Response(404, json={"error": "Not found"})
 
