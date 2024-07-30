@@ -4,6 +4,7 @@ import re
 from typing import TYPE_CHECKING, List
 from unittest.mock import patch
 
+import httpx
 import numpy as np
 import pytest
 
@@ -12,6 +13,7 @@ from deker.ctx import CTX
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
+from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
 from deker_server_adapters.utils.hashing import get_hash_key
 
@@ -74,3 +76,30 @@ def test_iter_success(
 def test_filter_by_id_is_not_allowed(collection_with_primary_attributes):
     with pytest.raises(FilteringByIdInClusterIsForbidden):
         collection_with_primary_attributes.filter({"id": "foo"}).last()
+
+
+def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mocked_ping, array):
+    class RequestCounter:
+        def __init__(self):
+            self.count = 0
+
+    request_counter = RequestCounter()
+
+    def limited_mock_response(request, extensions, request_counter, mocked_ping, data) -> httpx.Response:
+        url_to_mock = re.compile(r".*/v1/collection/.*/array/by-id/.*")
+
+        if url_to_mock.search(str(request.url)):
+            request_counter.count += 1
+
+            if request_counter.count < 2:
+                return httpx.Response(409, json=mocked_ping, headers={LAST_MODIFIED_HEADER: "new-hash"})
+            else:
+                return httpx.Response(200, json=data)
+
+        return httpx.Response(404, json={"error": "Not found"})
+
+    httpx_mock.add_callback(
+        lambda request: limited_mock_response(request, None, request_counter, mocked_ping, array.as_dict)
+    )
+    server_array_adapter.read_meta(array)
+    assert server_array_adapter.client.headers[LAST_MODIFIED_HEADER] == "new-hash"

@@ -18,6 +18,7 @@ from pytest_httpx import HTTPXMock
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
+from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.factory import AdaptersFactory
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
@@ -76,7 +77,9 @@ def ctx(mode, base_uri: Uri, nodes: List[dict], mocked_ping: dict) -> CTX:
 @pytest.fixture()
 def mock_ping(mode: str, httpx_mock: HTTPXMock, mocked_ping: Dict):
     if mode == CLUSTER_MODE:
-        httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping)
+        httpx_mock.add_response(
+            method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping, headers={LAST_MODIFIED_HEADER: "foo"}
+        )
     else:
         httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), status_code=200)
 

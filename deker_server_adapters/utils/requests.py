@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
 
 from deker.ABC import BaseArray
 from deker.ctx import CTX
-from httpx import Client, Response
+from httpx import Response
 
-from deker_server_adapters.consts import STATUS_OK
-from deker_server_adapters.errors import DekerServerError
+from deker_server_adapters.consts import REBALANCING_STATUS, STATUS_OK
+from deker_server_adapters.errors import DekerServerError, InvalidConfigHash
 from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key, get_id_and_primary_attributes
 from deker_server_adapters.utils.version import get_api_version
@@ -22,11 +22,17 @@ logger = getLogger(__name__)
 
 
 def _request(
-    url: str, node: str, client: Client, method: str = "GET", request_kwargs: Optional[Dict] = None
+    url: str,
+    node: str,
+    client: "HttpxClient",
+    method: str = "GET",
+    request_kwargs: Optional[Dict] = None,
+    retry_on_hash_failure: bool = False,
 ) -> Optional[Response]:
     """Internal request func - Make GET request on given node.
 
     :param url: What we request
+    :param retry_on_hash_failure: If we should retry on invalid hash
     :param node: Node for requesting
     :param client: Httpx Client
     :param method: Http method
@@ -36,7 +42,9 @@ def _request(
     request_url = f"{node.rstrip('/')}/{url.lstrip('/')}"
     request_kwargs = request_kwargs or {}
     try:
-        response = client.request(method, request_url, **request_kwargs)
+        response = client.request(method, request_url, **request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
+    except InvalidConfigHash:
+        raise
     except Exception as e:
         traceback.print_exc(-1)
         logger.exception(f"Coudn't get response from {node}", exc_info=e)  # noqa
@@ -45,10 +53,16 @@ def _request(
 
 
 def make_request(
-    url: str, nodes: Union[List, Tuple, Set], client: Client, method: str = "GET", request_kwargs: Optional[Dict] = None
+    url: str,
+    nodes: Union[List, Tuple, Set],
+    client: "HttpxClient",
+    method: str = "GET",
+    request_kwargs: Optional[Dict] = None,
+    retry_on_hash_failure: bool = False,
 ) -> Optional[Response]:
     """Make GET request on random node, while response is not received.
 
+    :param retry_on_hash_failure: If we should retry on invalid hash
     :param method: HTTP Method
     :param url: What we request
     :param request_kwargs: Kwargs for request
@@ -59,13 +73,13 @@ def make_request(
     nodes = list(nodes)
     if len(nodes) == 1:
         node = nodes.pop(0)
-        response = _request(url, node, client, method, request_kwargs)
+        response = _request(url, node, client, method, request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
     else:
         while nodes and (response is None or response.status_code != STATUS_OK):
             index = randint(0, len(nodes) - 1)
             node = nodes.pop(index)
 
-            response = _request(url, node, client, method, request_kwargs)
+            response = _request(url, node, client, method, request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
 
     return response
 
@@ -106,21 +120,24 @@ def request_in_cluster(
     :param method: Http method
     :param request_kwargs: Extra data for request
     """
-    from deker_server_adapters.cluster_config import request_and_apply_config
-
     # Retrieve fresh config
-    request_and_apply_config(ctx)
     client = ctx.extra["httpx_client"]
 
     node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
 
     # Check status of file
-    if should_check_status:
-        status = check_status(ctx, array)
-        if status == Status.MOVED:
-            node = ctx.extra["hash_ring_target"].get_node(get_hash_key(array))
+    def _check_status() -> None:
+        if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
+            status = check_status(ctx, array)
+            if status == Status.MOVED:
+                ctx.extra["hash_ring_target"].get_node(get_hash_key(array))
 
+    _check_status()
     # Acquire locks
     # TODO: Lock acquiring logic if needed
     # Make request
-    return make_request(url, [node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
+    try:
+        return make_request(url, [node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
+    except InvalidConfigHash:
+        _check_status()
+        return make_request(url, [node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
