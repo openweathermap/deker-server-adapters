@@ -63,7 +63,8 @@ class BaseServerAdapterMixin:
         """Return HashRing instance."""
         hash_ring = self.ctx.extra.get("hash_ring")
         if not hash_ring:
-            raise AttributeError("Attempt to use cluster logic in single server mode")
+            msg = "Attempt to use cluster logic in single server mode"
+            raise AttributeError(msg)
         return hash_ring  # type: ignore[attr-defined]
 
     @property
@@ -173,7 +174,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         # Only Varray can be located on different nodes yet.
         if self.type == ArrayType.varray and self.client.cluster_mode:
-            response = make_request(url=url, nodes=self.nodes_urls, client=self.client)
+            response = make_request(url=url, nodes=self.nodes_urls, client=self.client, retry_on_hash_failure=True)
         elif self.client.cluster_mode:
             response = request_in_cluster(url, array, self.ctx, True)
         else:
@@ -373,12 +374,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             return None
         return self.__create_array_from_response(
             response,
-            dict(
-                type=self.type,
-                collection=collection,
-                array_adapter=array_adapter,
-                varray_adapter=varray_adapter,
-            ),
+            {
+                "type": self.type,
+                "collection": collection,
+                "array_adapter": array_adapter,
+                "varray_adapter": varray_adapter,
+            },
         )
 
     def get_by_id(
@@ -425,12 +426,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         return self.__create_array_from_response(
             response,
-            dict(
-                type=self.type,
-                collection=collection,
-                array_adapter=array_adapter,
-                varray_adapter=varray_adapter,
-            ),
+            {
+                "type": self.type,
+                "collection": collection,
+                "array_adapter": array_adapter,
+                "varray_adapter": varray_adapter,
+            },
         )
 
     def __iter__(self) -> Generator["ArrayMeta", None, None]:

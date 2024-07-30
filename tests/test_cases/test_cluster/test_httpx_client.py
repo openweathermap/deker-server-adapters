@@ -20,7 +20,7 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
                 "host": "newhost.owm.io",
                 "port": 80,
                 "protocol": "http",
-                "storage": "file:///tmp/deker_server"
+                "storage": "file:///tmp/deker_server",
             }
         ],
         "raft": [
@@ -29,7 +29,7 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
                 "host": "newhost.owm.io",
                 "port": 80,
                 "protocol": "http",
-                "storage": "file:///tmp/deker_server"
+                "storage": "file:///tmp/deker_server",
             }
         ],
     }

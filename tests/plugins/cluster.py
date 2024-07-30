@@ -7,6 +7,7 @@ import pytest
 from deker.uri import Uri
 from pytest_httpx import HTTPXMock
 
+from deker_server_adapters.consts import REBALANCING_STATUS
 from deker_server_adapters.models import Status
 
 
@@ -18,14 +19,14 @@ def nodes() -> List[Dict]:
             "host": "localhost",
             "port": 8000,
             "protocol": "http",
-            "storage": "file:///tmp/deker_server"
+            "storage": "file:///tmp/deker_server",
         },
         {
             "id": "8381202B-8C95-487A-B9B5-0B5270568040",
             "host": "localhost",
             "port": 8012,
             "protocol": "http",
-            "storage": "file:///tmp/deker_server"
+            "storage": "file:///tmp/deker_server",
         },
     ]
 
@@ -48,13 +49,14 @@ def base_cluster_uri(nodes_urls):
 
 
 @pytest.fixture()
-def mocked_ping(nodes: List[Dict]) -> Dict:
+def mocked_ping(nodes: List[Dict], status: str) -> Dict:
     return {
         "mode": "cluster",
+        "cluster_status": status,
         "this_id": "8381202B-8C95-487A-B9B5-0B527056804E",
         "leader_id": "8381202B-8C95-487A-B9B5-0B527056804E",
         "current": nodes,
-        "raft": nodes
+        "raft": nodes,
     }
 
 
@@ -64,5 +66,6 @@ def mock_healthcheck(httpx_mock: HTTPXMock, mocked_ping):
 
 
 @pytest.fixture()
-def mocked_filestatus_check_unmoved(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(method="GET", url=re.compile(r".*\/status.*"), text=Status.UNMOVED.value)
+def mocked_filestatus_check_unmoved(httpx_mock: HTTPXMock, status: str):
+    if status == REBALANCING_STATUS:
+        httpx_mock.add_response(method="GET", url=re.compile(r".*\/status.*"), text=Status.UNMOVED.value)

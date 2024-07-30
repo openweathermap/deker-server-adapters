@@ -97,3 +97,7 @@ class FilteringByIdInClusterIsForbidden(DekerBaseApplicationError):
 
 class HashRingError(DekerBaseApplicationError):
     """If there is a problem with HashRing."""
+
+
+class InvalidConfigHash(DekerBaseApplicationError):
+    """If config was updated."""
