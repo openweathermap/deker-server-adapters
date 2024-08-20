@@ -110,7 +110,8 @@ def request_config(ctx: CTX) -> dict:  # type: ignore[return-value]
         httpx_client.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})
         return config
     except KeyError:
-        raise DekerClusterError(response, f"No {LAST_MODIFIED_HEADER} header found in response.")
+        # raise DekerClusterError(response, f"No {LAST_MODIFIED_HEADER} header found in response.")
+        return response.json()
     except JSONDecodeError:
         if ctx.uri.servers:
             raise DekerClusterError(response, "Server responded with wrong config. Couldn't parse json")

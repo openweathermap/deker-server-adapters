@@ -1,8 +1,11 @@
+import logging
+import socket
+
 from typing import Any, Type
 
 from deker.ctx import CTX
 from deker.errors import DekerMemoryError
-from httpx import Client, Response
+from httpx import Client, HTTPTransport, Response
 
 from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.consts import (
@@ -21,6 +24,10 @@ from deker_server_adapters.errors import (
     DekerRateLimitError,
     InvalidConfigHash,
 )
+
+
+logging.basicConfig(level="DEBUG")
+logger = logging.getLogger("deker.server-adapters")
 
 
 def rate_limit_err(response: Response, message: str, class_: Type[DekerBaseRateLimitError]) -> None:
@@ -50,6 +57,17 @@ class HttpxClient(Client):
     ctx: CTX
     cluster_mode: bool = False
 
+    def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        transport = HTTPTransport(
+            socket_options=[
+                (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),
+                (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),
+                (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+            ]
+        )
+        kwargs["transport"] = transport
+        super().__init__(*args, **kwargs)
+
     def request(self, *args: Any, retry_on_hash_failure: bool = False, **kwargs: Any) -> Response:
         """Override httpx method to handle rate errors.
 
@@ -57,7 +75,9 @@ class HttpxClient(Client):
         :param retry_on_hash_failure: If we should retry on invalid hash
         :param kwargs: keyword arguments to request
         """
+        logger.debug(f"{args=}\n{kwargs=}")
         response = super().request(*args, **kwargs)
+
         if response.status_code == CONFLICT_HASH:
             apply_config(response.json(), self.ctx)
             if LAST_MODIFIED_HEADER in response.headers:
