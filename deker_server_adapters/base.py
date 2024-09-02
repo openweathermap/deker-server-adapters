@@ -278,9 +278,11 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """
         bounds = slice_converter[bounds]
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data"
-        request_kwargs = {"json": data}
-        if hasattr(data, "tolist"):
-            request_kwargs["json"] = data.tolist()
+        request_kwargs = {"headers": {"Content-Type": "application/octet-stream"}}
+        if hasattr(data, "tobytes"):
+            request_kwargs["data"] = data.tobytes()
+        else:
+            request_kwargs["data"] = bytes(data)
         # We write (v)array through the node it belongs in cluster
         try:
             if self.client.cluster_mode:
