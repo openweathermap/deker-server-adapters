@@ -291,7 +291,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                     url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
                 )
             else:
-                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
+                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)  # type: ignore
         except TimeoutException:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} update {array}",
