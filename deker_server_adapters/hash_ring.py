@@ -73,7 +73,8 @@ class HashRing:
         """
         pos = self.get_node_pos(string_key)
         if pos is None:
-            raise HashRingError(f"Couldn't find a position in {self.ring}")
+            msg = f"Couldn't find a position in {self.ring}"
+            raise HashRingError(msg)
         return self.ring[self._sorted_keys[pos]]
 
     def get_node_pos(self, string_key: str) -> Optional[int]:
