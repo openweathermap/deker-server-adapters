@@ -6,12 +6,11 @@ from typing import List, Optional
 from deker.ctx import CTX
 from deker.uri import Uri
 
-from deker_server_adapters.consts import LAST_MODIFIED_HEADER, STATUS_OK
+from deker_server_adapters.consts import STATUS_OK
 from deker_server_adapters.errors import DekerClusterError, DekerServerError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.utils.requests import make_request
 from deker_server_adapters.utils.version import get_api_version
-
 
 CLUSTER_MODE = "cluster"
 
@@ -48,7 +47,7 @@ class ClusterConfig:
     leader: Node
     current: List[Node]
     target: Optional[List[Node]] = None  # Only appears when cluster in rebalancing mode
-    cluster_status: Optional[str] = ""
+
     __hash_ring: HashRing = field(init=False)
     __hash_ring_target: HashRing = field(init=False)
 
@@ -76,13 +75,7 @@ class ClusterConfig:
         current = process_nodes(cluster_config_dict["current"])
         target = process_nodes(cluster_config_dict["target"]) if "target" in cluster_config_dict else None
 
-        return cls(
-            mode=cluster_config_dict["mode"],
-            leader=leader,
-            current=current,
-            target=target,
-            cluster_status=cluster_config_dict.get("cluster_status"),
-        )
+        return cls(mode=cluster_config_dict["mode"], leader=leader, current=current, target=target)
 
 
 def request_config(ctx: CTX) -> dict:  # type: ignore[return-value]
@@ -106,11 +99,7 @@ def request_config(ctx: CTX) -> dict:  # type: ignore[return-value]
 
     try:
         config = response.json()  # type: ignore[union-attr]
-        # Set hash of config
-        httpx_client.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})
         return config
-    except KeyError:
-        raise DekerClusterError(response, f"No {LAST_MODIFIED_HEADER} header found in response.")
     except JSONDecodeError:
         if ctx.uri.servers:
             raise DekerClusterError(response, "Server responded with wrong config. Couldn't parse json")

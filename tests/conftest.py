@@ -18,7 +18,6 @@ from pytest_httpx import HTTPXMock
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
-from deker_server_adapters.consts import LAST_MODIFIED_HEADER, NORMAL_STATUS, REBALANCING_STATUS
 from deker_server_adapters.factory import AdaptersFactory
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
@@ -35,11 +34,6 @@ pytest_plugins = ["tests.plugins.cluster"]
 
 @pytest.fixture(params=[SINGLE_MODE, CLUSTER_MODE])
 def mode(request) -> str:
-    return request.param
-
-
-@pytest.fixture(params=[REBALANCING_STATUS, NORMAL_STATUS])
-def status(request) -> str:
     return request.param
 
 
@@ -82,9 +76,7 @@ def ctx(mode, base_uri: Uri, nodes: List[dict], mocked_ping: dict) -> CTX:
 @pytest.fixture()
 def mock_ping(mode: str, httpx_mock: HTTPXMock, mocked_ping: Dict):
     if mode == CLUSTER_MODE:
-        httpx_mock.add_response(
-            method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping, headers={LAST_MODIFIED_HEADER: "foo"}
-        )
+        httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping)
     else:
         httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), status_code=200)
 
@@ -241,6 +233,6 @@ def array_url_path(array: Array) -> str:
 
 
 @pytest.fixture()
-def mock_status(mode: str, request: pytest.FixtureRequest, status: str):
-    if mode == CLUSTER_MODE and status == REBALANCING_STATUS:
+def mock_status(mode: str, request: pytest.FixtureRequest):
+    if mode == CLUSTER_MODE:
         request.getfixturevalue("mocked_filestatus_check_unmoved")
