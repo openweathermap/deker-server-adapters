@@ -85,37 +85,6 @@ class ClusterConfig:
         )
 
 
-def request_config(ctx: CTX) -> dict:  # type: ignore[return-value]
-    """Request config from server and apply it on context.
-
-    :param ctx: App context
-    """
-    httpx_client = ctx.extra["httpx_client"]
-    url = f"{get_api_version()}/ping"
-
-    # If we do healthcheck in cluster
-    nodes = [*ctx.uri.servers] if ctx.uri.servers else [ctx.uri.raw_url]
-    response = make_request(url=url, nodes=nodes, client=httpx_client)
-
-    if not response or response.status_code != STATUS_OK:
-        httpx_client.close()
-        raise DekerServerError(
-            response,
-            "Healthcheck failed. Deker client will be closed.",
-        )
-
-    try:
-        config = response.json()  # type: ignore[union-attr]
-        # Set hash of config
-        httpx_client.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})
-        return config
-    except KeyError:
-        raise DekerClusterError(response, f"No {LAST_MODIFIED_HEADER} header found in response.")
-    except JSONDecodeError:
-        if ctx.uri.servers:
-            raise DekerClusterError(response, "Server responded with wrong config. Couldn't parse json")
-
-
 def is_config_in_cluster_mode(config: Optional[dict], ctx: CTX) -> bool:
     """Check if mode from config is set to cluster.
 
@@ -162,6 +131,28 @@ def request_and_apply_config(ctx: CTX) -> None:
 
     :param ctx: Application context
     """
-    config_dict = request_config(ctx)
-    if is_config_in_cluster_mode(config_dict, ctx):
-        apply_config(config_dict, ctx)
+    httpx_client = ctx.extra["httpx_client"]
+    url = f"{get_api_version()}/ping"
+
+    # If we do healthcheck in cluster
+    nodes = [*ctx.uri.servers] if ctx.uri.servers else [ctx.uri.raw_url]
+    response = make_request(url=url, nodes=nodes, client=httpx_client)
+
+    if not response or response.status_code != STATUS_OK:
+        httpx_client.close()
+        raise DekerServerError(
+            response,
+            "Healthcheck failed. Deker client will be closed.",
+        )
+
+    try:
+        config = response.json()  # type: ignore[union-attr]
+        if is_config_in_cluster_mode(config, ctx):
+            # Set hash of config
+            httpx_client.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})
+            apply_config(config, ctx)
+    except KeyError:
+        raise DekerClusterError(response, f"No {LAST_MODIFIED_HEADER} header found in response.")
+    except JSONDecodeError:
+        if ctx.uri.servers:
+            raise DekerClusterError(response, "Server responded with wrong config. Couldn't parse json")
