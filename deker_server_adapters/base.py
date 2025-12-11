@@ -63,7 +63,8 @@ class BaseServerAdapterMixin:
         """Return HashRing instance."""
         hash_ring = self.ctx.extra.get("hash_ring")
         if not hash_ring:
-            raise AttributeError("Attempt to use cluster logic in single server mode")
+            msg = "Attempt to use cluster logic in single server mode"
+            raise AttributeError(msg)
         return hash_ring  # type: ignore[attr-defined]
 
     @property
@@ -173,7 +174,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         # Only Varray can be located on different nodes yet.
         if self.type == ArrayType.varray and self.client.cluster_mode:
-            response = make_request(url=url, nodes=self.nodes_urls, client=self.client)
+            response = make_request(url=url, nodes=self.nodes_urls, client=self.client, retry_on_hash_failure=True)
         elif self.client.cluster_mode:
             response = request_in_cluster(url, array, self.ctx, True)
         else:
@@ -278,9 +279,11 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """
         bounds = slice_converter[bounds]
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data"
-        request_kwargs = {"json": data}
-        if hasattr(data, "tolist"):
-            request_kwargs["json"] = data.tolist()
+        request_kwargs = {"headers": {"Content-Type": "application/octet-stream"}}
+        if hasattr(data, "tobytes"):
+            request_kwargs["data"] = data.tobytes()
+        else:
+            request_kwargs["data"] = bytes(data)  # type: ignore
         # We write (v)array through the node it belongs in cluster
         try:
             if self.client.cluster_mode:
@@ -288,7 +291,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                     url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
                 )
             else:
-                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
+                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)  # type: ignore
         except TimeoutException:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} update {array}",
@@ -373,12 +376,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             return None
         return self.__create_array_from_response(
             response,
-            dict(
-                type=self.type,
-                collection=collection,
-                array_adapter=array_adapter,
-                varray_adapter=varray_adapter,
-            ),
+            {
+                "type": self.type,
+                "collection": collection,
+                "array_adapter": array_adapter,
+                "varray_adapter": varray_adapter,
+            },
         )
 
     def get_by_id(
@@ -425,12 +428,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
         return self.__create_array_from_response(
             response,
-            dict(
-                type=self.type,
-                collection=collection,
-                array_adapter=array_adapter,
-                varray_adapter=varray_adapter,
-            ),
+            {
+                "type": self.type,
+                "collection": collection,
+                "array_adapter": array_adapter,
+                "varray_adapter": varray_adapter,
+            },
         )
 
     def __iter__(self) -> Generator["ArrayMeta", None, None]:

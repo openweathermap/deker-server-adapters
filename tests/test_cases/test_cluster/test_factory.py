@@ -10,6 +10,7 @@ from deker.uri import Uri
 from deker_local_adapters.storage_adapters.hdf5 import HDF5StorageAdapter
 from pytest_httpx import HTTPXMock
 
+from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.errors import DekerClusterError
 from deker_server_adapters.factory import AdaptersFactory
 
@@ -91,3 +92,9 @@ def test_factory_get_config_from_single_server(ctx, mock_ping, mocked_ping):
     assert sorted([asdict(node) for node in adapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
         [node for node in mocked_ping["current"]], key=lambda x: x["id"]
     )
+
+
+def test_hash_added_to_headers(ctx: CTX, mock_ping):
+    uri = Uri.create("http://test:test@localhost/")
+    factory = AdaptersFactory(ctx, uri)
+    assert factory.httpx_client.headers[LAST_MODIFIED_HEADER]
