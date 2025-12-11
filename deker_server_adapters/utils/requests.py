@@ -8,6 +8,7 @@ from deker.ABC import BaseArray
 from deker.ctx import CTX
 from httpx import Response
 
+from deker_server_adapters.cluster_config import Node
 from deker_server_adapters.consts import REBALANCING_STATUS, STATUS_OK
 from deker_server_adapters.errors import DekerServerError, InvalidConfigHash
 from deker_server_adapters.models import Status
@@ -115,29 +116,33 @@ def request_in_cluster(
 
     :param url: url which to request
     :param array: Array instance
-    :param ctx: Application contxet
+    :param ctx: Application context
     :param should_check_status: If we should check whether the file has been moved or not
     :param method: Http method
     :param request_kwargs: Extra data for request
     """
-    # Retrieve fresh config
-    client = ctx.extra["httpx_client"]
-
-    node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
-
-    # Check status of file
-    def _check_status() -> None:
+    def _check_status(initial_node: Node) -> Node:
+        """Closure for getting status of config file on the server and retrieving correct node for request.
+        
+        :param initial_node: Node to return if there are no updates.
+        """
         if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
             status = check_status(ctx, array)
             if status == Status.MOVED:
-                ctx.extra["hash_ring_target"].get_node(get_hash_key(array))
+                return ctx.extra["hash_ring_target"].get_node(get_hash_key(array))
+        return initial_node
 
-    _check_status()
+    # Retrieve fresh config
+    client = ctx.extra["httpx_client"]
+
+    base_node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
+
+    target_node = _check_status(base_node)
     # Acquire locks
     # TODO: Lock acquiring logic if needed
     # Make request
     try:
-        return make_request(url, [node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
+        return make_request(url, [target_node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
     except InvalidConfigHash:
-        _check_status()
-        return make_request(url, [node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
+        updated_node = _check_status(target_node)
+        return make_request(url, [updated_node.url.raw_url], client, method=method, request_kwargs=request_kwargs)

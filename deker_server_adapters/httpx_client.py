@@ -65,7 +65,7 @@ class HttpxClient(Client):
             if retry_on_hash_failure:
                 response = super().request(*args, **kwargs)
             else:
-                raise InvalidConfigHash
+                raise InvalidConfigHash("Cluster hash conflict")
 
         if response.status_code == TOO_MANY_REQUESTS:
             rate_limit_err(response=response, message=RATE_ERROR_MESSAGE, class_=DekerRateLimitError)
