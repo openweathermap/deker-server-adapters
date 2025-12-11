@@ -2,10 +2,12 @@ import hashlib
 import math
 
 from bisect import bisect
-from typing import Callable, Generator, List, Optional, Set, Tuple, TypeVar, Union
+from typing import TYPE_CHECKING, Callable, Generator, List, Optional, Set, Tuple, TypeVar, Union
 
 from deker_server_adapters.errors import HashRingError
 
+if TYPE_CHECKING:
+    from deker_server_adapters.cluster_config import Node
 
 md5_constructor = hashlib.md5
 
@@ -47,8 +49,8 @@ class HashRing:
 
         self._sorted_keys.sort()
 
-    def __init__(self, nodes: Union[List[T], Tuple[T, ...], Set[T]], weights: Optional[dict] = None):
-        """Generare instace of hash ring with given nodes.
+    def __init__(self, nodes: Union[List["Node"], Tuple["Node", ...], Set["Node"]], weights: Optional[dict] = None):
+        """Generate instance of hash ring with given nodes.
 
         :param nodes: is a list of objects that have a proper __str__ representation.
         :param weights: is dictionary that sets weights to the nodes.  The default
@@ -57,7 +59,7 @@ class HashRing:
         self.ring = {}  # type: ignore[var-annotated]
         self._sorted_keys = []  # type: ignore[var-annotated]
 
-        self.nodes: Union[List[T], Tuple[T, ...], Set[T]] = nodes
+        self.nodes: Union[List["Node"], Tuple["Node", ...], Set["Node"]] = nodes
 
         if not weights:
             weights = {}  # type: ignore[var-annotated]
@@ -65,7 +67,7 @@ class HashRing:
 
         self._generate_circle()
 
-    def get_node(self, string_key: str) -> T:  # type: ignore[type-var]
+    def get_node(self, string_key: str) -> "Node":
         """Return hash ring by given a string key a corresponding node.
 
         If the hash ring is empty, `None` is returned.
@@ -73,7 +75,8 @@ class HashRing:
         """
         pos = self.get_node_pos(string_key)
         if pos is None:
-            raise HashRingError(f"Couldn't find a position in {self.ring}")
+            msg = f"Couldn't find a position in {self.ring}"
+            raise HashRingError(msg)
         return self.ring[self._sorted_keys[pos]]
 
     def get_node_pos(self, string_key: str) -> Optional[int]:
