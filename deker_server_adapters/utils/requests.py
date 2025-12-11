@@ -8,7 +8,6 @@ from deker.ABC import BaseArray
 from deker.ctx import CTX
 from httpx import Response
 
-from deker_server_adapters.cluster_config import Node
 from deker_server_adapters.consts import REBALANCING_STATUS, STATUS_OK
 from deker_server_adapters.errors import DekerServerError, InvalidConfigHash
 from deker_server_adapters.models import Status
@@ -18,6 +17,7 @@ from deker_server_adapters.utils.version import get_api_version
 
 if TYPE_CHECKING:
     from deker_server_adapters.httpx_client import HttpxClient
+    from deker_server_adapters.cluster_config import Node
 
 logger = getLogger(__name__)
 
@@ -121,9 +121,9 @@ def request_in_cluster(
     :param method: Http method
     :param request_kwargs: Extra data for request
     """
-    def _check_status(initial_node: Node) -> Node:
+    def _check_status(initial_node: "Node") -> "Node":
         """Closure for getting status of config file on the server and retrieving correct node for request.
-        
+
         :param initial_node: Node to return if there are no updates.
         """
         if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
