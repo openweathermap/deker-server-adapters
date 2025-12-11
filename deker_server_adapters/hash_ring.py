@@ -2,11 +2,12 @@ import hashlib
 import math
 
 from bisect import bisect
-from typing import Callable, Generator, List, Optional, Set, Tuple, TypeVar, Union
+from typing import TYPE_CHECKING, Callable, Generator, List, Optional, Set, Tuple, TypeVar, Union
 
-from deker_server_adapters.cluster_config import Node
 from deker_server_adapters.errors import HashRingError
 
+if TYPE_CHECKING:
+    from deker_server_adapters.cluster_config import Node
 
 md5_constructor = hashlib.md5
 
@@ -48,7 +49,7 @@ class HashRing:
 
         self._sorted_keys.sort()
 
-    def __init__(self, nodes: Union[List[Node], Tuple[Node, ...], Set[Node]], weights: Optional[dict] = None):
+    def __init__(self, nodes: Union[List["Node"], Tuple["Node", ...], Set["Node"]], weights: Optional[dict] = None):
         """Generate instance of hash ring with given nodes.
 
         :param nodes: is a list of objects that have a proper __str__ representation.
@@ -58,7 +59,7 @@ class HashRing:
         self.ring = {}  # type: ignore[var-annotated]
         self._sorted_keys = []  # type: ignore[var-annotated]
 
-        self.nodes: Union[List[Node], Tuple[Node, ...], Set[Node]] = nodes
+        self.nodes: Union[List["Node"], Tuple["Node", ...], Set["Node"]] = nodes
 
         if not weights:
             weights = {}  # type: ignore[var-annotated]
@@ -66,7 +67,7 @@ class HashRing:
 
         self._generate_circle()
 
-    def get_node(self, string_key: str) -> Node:
+    def get_node(self, string_key: str) -> "Node":
         """Return hash ring by given a string key a corresponding node.
 
         If the hash ring is empty, `None` is returned.
