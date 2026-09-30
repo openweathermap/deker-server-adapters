@@ -98,13 +98,13 @@ doc8 = "0.11.2"
 # https://black.readthedocs.io/en/stable/
 [tool.black]
 line-length = 120
-target-version = ['py38', 'py39']
+target-version = ['py311']
 include = '\.pyi?$'
 
 
 # https://pycqa.github.io/isort/
 [tool.isort]
-py_version = 39
+py_version = 311
 sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
 known_local_folder = ['deker_server_adapters', ]
 profile = 'black'
@@ -123,7 +123,6 @@ extend_skip = ['.md', '.json']
 # https://mypy.readthedocs.io/en/stable/
 # https://pypi.org/project/mypy-extensions/
 [tool.mypy]
-python_version = '3.8'
 ignore_missing_imports = true
 scripts_are_modules = true
 allow_redefinition = true
