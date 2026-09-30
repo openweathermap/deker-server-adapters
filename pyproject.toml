@@ -283,7 +283,7 @@ testpaths = "./tests"
 #log_cli_level = "DEBUG"
 
 pythonpath = ["./deker_server_adapters", "./.venv", "./venv"]
-filterwarnings = ["ignore::UserWarning", 'ignore::DeprecationWarning', "ignore::ResourceWarning"]
+filterwarnings = ["ignore::UserWarning", "ignore::ResourceWarning"]
 
 [tool.coverage.run]  # coverage
 branch = true
