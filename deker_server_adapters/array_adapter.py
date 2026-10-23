@@ -10,7 +10,6 @@ from deker_server_adapters.consts import STATUS_OK, ArrayType
 from deker_server_adapters.errors import DekerServerError
 from deker_server_adapters.httpx_client import HttpxClient
 
-
 if TYPE_CHECKING:
     from deker import Collection
     from deker.uri import Uri

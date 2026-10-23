@@ -30,9 +30,11 @@ classifiers = [
     "Operating System :: MacOS :: MacOS X",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 [tool.poetry-dynamic-versioning]
@@ -54,37 +56,37 @@ priority = "supplemental"
                                 ####################
 
 [tool.poetry.dependencies]
-python = "^3.9"
-httpx = "^0.27.0"
-pytest-httpx = "^0.30.0"
+python = "^3.10"
+httpx = ">=0.28.1,<1"
 
 [tool.poetry.group.dev.dependencies]
-black = "^23.7.0"
-coverage = "^7.3.0"
-darglint = "^1.8.1"
-ruff = "^0.0.284"
-isort = "^5.12.0"
-mypy = "^1.5.0"
-mypy-extensions = "^1.0.0"
-pep8-naming = "^0.13.3"
-pre-commit = "^3.3.3"
-ssort = "^0.11.6"
-pycln = "^2.2.2"
-pytest = "^7.4.0"
-pytest-cov = "^4.1.0"
-pytest-sugar = "^0.9.7"
-pytest-mock = "^3.11.1"
-flake8-pyproject = "^1.2.3"
-pytest-random-order = "1.1.0"
-deker = {version = "^1.1.4"}
+black = "26.10.1"
+coverage = "7.16.2"
+darglint = "1.8.1"
+ruff = "0.17.2"
+isort = "9.0.2"
+mypy = "2.4.0"
+mypy-extensions = "1.1.0"
+pep8-naming = "0.15.1"
+pre-commit = "4.6.2"
+ssort = "0.17.0"
+pycln = "2.6.0"
+pytest = "9.1.1"
+pytest-cov = "7.1.0"
+pytest-sugar = "1.1.1"
+pytest-mock = "3.17.0"
+flake8-pyproject = "1.2.4"
+pytest-random-order = "1.2.0"
+deker = ">=1.2.0b1,<2"
+pytest-httpx = "0.36.2"
 
 [tool.poetry.group.docs.dependencies]
-docutils = "0.17"
-m2r2 = "0.3.2"
-sphinx-rtd-theme = "1.2.2"
-enum_tools = "0.10.0"
-sphinx_toolbox = "3.5.0"
-doc8 = "0.11.2"
+docutils = "0.21.2"
+m2r2 = "2.1.0"
+sphinx-rtd-theme = "3.1.0"
+enum_tools = "0.13.0"
+sphinx_toolbox = "4.3.1"
+doc8 = "2.0.0"
 
                                     #############
                                     ### TOOLS ###
@@ -97,20 +99,19 @@ doc8 = "0.11.2"
 # https://black.readthedocs.io/en/stable/
 [tool.black]
 line-length = 120
-target-version = ['py38', 'py39']
+target-version = ['py310']
 include = '\.pyi?$'
 
 
 # https://pycqa.github.io/isort/
 [tool.isort]
-py_version = 39
+py_version = 310
 sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
 known_local_folder = ['deker_server_adapters', ]
 profile = 'black'
 atomic = true
 include_trailing_comma = true
 line_length = 120
-lines_after_imports = 2
 lines_between_types = 1
 multi_line_output = 3
 extend_skip = ['.md', '.json']
@@ -122,7 +123,7 @@ extend_skip = ['.md', '.json']
 # https://mypy.readthedocs.io/en/stable/
 # https://pypi.org/project/mypy-extensions/
 [tool.mypy]
-python_version = '3.8'
+python_version = '3.10'
 ignore_missing_imports = true
 scripts_are_modules = true
 allow_redefinition = true
@@ -155,7 +156,7 @@ disallow_untyped_defs = false
 # https://pypi.org/project/flake8-import-order/
 # https://pypi.org/project/flake8-pytest-style/
 # https://pypi.org/project/pep8-naming/
-min_python_version = 3.9
+min_python_version = 3.10
 max-complexity = 15
 max-doc-length = 120
 max-line-length = 120
@@ -219,7 +220,7 @@ exclude = "venv/*,.venv/*,.git/*,__pycache__/*,examples/*"
 max-line-length = 99
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 120
 select = ["ALL"]
 ignore = [

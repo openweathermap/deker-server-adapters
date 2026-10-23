@@ -14,10 +14,9 @@ from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key, get_id_and_primary_attributes
 from deker_server_adapters.utils.version import get_api_version
 
-
 if TYPE_CHECKING:
-    from deker_server_adapters.httpx_client import HttpxClient
     from deker_server_adapters.cluster_config import Node
+    from deker_server_adapters.httpx_client import HttpxClient
 
 logger = getLogger(__name__)
 
@@ -121,6 +120,7 @@ def request_in_cluster(
     :param method: Http method
     :param request_kwargs: Extra data for request
     """
+
     def _check_status(initial_node: "Node") -> "Node":
         """Closure for getting status of config file on the server and retrieving correct node for request.
 

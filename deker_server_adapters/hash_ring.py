@@ -32,11 +32,7 @@ class HashRing:
             total_weight += self.weights.get(node, 1)
 
         for node in self.nodes:
-            weight = 1
-
-            if node in self.weights:
-                weight = self.weights.get(node)  # type: ignore[assignment]
-
+            weight = self.weights.get(node, 1)
             factor = math.floor((40 * len(self.nodes) * weight) / total_weight)
 
             for j in range(0, int(factor)):
