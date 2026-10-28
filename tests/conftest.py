@@ -33,6 +33,14 @@ SINGLE_MODE = "single"
 pytest_plugins = ["tests.plugins.cluster"]
 
 
+def pytest_collection_modifyitems(items: List[pytest.Item]) -> None:
+    # keep pytest-httpx<0.31 semantics: responses are reusable, unmatched requests just time out (cluster failover)
+    for item in items:
+        item.add_marker(
+            pytest.mark.httpx_mock(can_send_already_matched_responses=True, assert_all_requests_were_expected=False)
+        )
+
+
 @pytest.fixture(params=[SINGLE_MODE, CLUSTER_MODE])
 def mode(request) -> str:
     return request.param

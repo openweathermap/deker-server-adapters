@@ -12,7 +12,6 @@ from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.utils.requests import make_request
 from deker_server_adapters.utils.version import get_api_version
 
-
 CLUSTER_MODE = "cluster"
 
 

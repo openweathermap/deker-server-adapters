@@ -10,7 +10,6 @@ from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseCollectionAdapter, BaseStorageAdapter, BaseVArrayAdapter
 

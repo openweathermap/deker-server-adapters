@@ -24,7 +24,6 @@ from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils.requests import make_request, request_in_cluster
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.ABC.base_schemas import BaseArraysSchema
