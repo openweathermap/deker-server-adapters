@@ -8,7 +8,6 @@ from deker.ctx import CTX
 from deker_server_adapters.base import ServerArrayAdapterMixin
 from deker_server_adapters.consts import ArrayType
 
-
 if TYPE_CHECKING:
     from deker.uri import Uri
 
