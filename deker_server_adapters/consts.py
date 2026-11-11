@@ -2,7 +2,6 @@ from enum import Enum
 
 from deker import Array, VArray
 
-
 STATUS_OK = 200
 STATUS_CREATED = 201
 BAD_REQUEST = 400
