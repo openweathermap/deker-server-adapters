@@ -1,7 +1,7 @@
 from json import JSONDecodeError
 
 from deker.errors import DekerBaseApplicationError
-from httpx import Response
+from httpx import Response, ResponseNotRead
 
 
 class DekerServerError(DekerBaseApplicationError):
@@ -31,6 +31,8 @@ class DekerServerError(DekerBaseApplicationError):
             except JSONDecodeError:
                 suffix = "..." if len(response.content) > self.MAX_ERROR_TEXT_SIZE else ""
                 server_message = f"{response.content[: self.MAX_ERROR_TEXT_SIZE]!r}{suffix}"
+            except ResponseNotRead:
+                server_message = "<streamed body, not read>"
 
         message = message or ""
         return f"{message} \nResponse: {status=}, message={server_message}"

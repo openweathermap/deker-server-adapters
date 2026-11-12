@@ -106,16 +106,25 @@ def test_collection_clear_raises_not_found(
         collection_adapter.clear(collection)
 
 
-@pytest.mark.xfail(reason="Request is not mocked properly")
 def test_client_iter_success(
     collection: Collection, httpx_mock: HTTPXMock, collection_adapter: ServerCollectionAdapter, ctx
 ):
-    httpx_mock.add_response(
-        url=re.compile(f"{ctx.uri.raw_url.rstrip('/')}/v1/collections/"), json=[collection.as_dict], status_code=200
-    )
+    httpx_mock.add_response(url=re.compile(r".*/v1/collections$"), json=[collection.as_dict], status_code=200)
 
     cols = []
     for col in collection_adapter:
         cols.append(col)
 
     assert cols == [json.loads(json.dumps(collection.as_dict))]
+
+
+def test_is_deleted_is_always_false(collection_adapter: ServerCollectionAdapter, collection: Collection):
+    assert collection_adapter.is_deleted(collection) is False
+
+
+def test_client_iter_fails_when_collections_cannot_be_listed(
+    httpx_mock: HTTPXMock, collection_adapter: ServerCollectionAdapter
+):
+    httpx_mock.add_response(url=re.compile(r".*/v1/collections$"), status_code=500)
+    with pytest.raises(DekerServerError, match="list of collections"):
+        list(collection_adapter)

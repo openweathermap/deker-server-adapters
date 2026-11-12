@@ -21,7 +21,7 @@ class HashRing(Generic[NodeT]):
     def _hash_digest(self, key: str) -> list[int]:
         m = md5_constructor()
         m.update(key.encode())
-        return [int(str(letter)) for letter in m.digest()]  # , m.digest()))
+        return list(m.digest())
 
     def _generate_circle(self) -> None:
         """Generate the circle."""

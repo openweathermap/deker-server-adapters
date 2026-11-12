@@ -1,19 +1,28 @@
+import json
 import re
 
 from unittest.mock import patch
+from urllib.parse import unquote
 from uuid import uuid4
 
 import numpy as np
 import pytest
 
+from deker import ArraySchema, AttributeSchema, DimensionSchema
 from deker.arrays import Array
 from deker.collection import Collection
+from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from httpx import ReadTimeout
 from pytest_httpx import HTTPXMock
 
 from tests.conftest import CLUSTER_MODE
 
+from deker_server_adapters import base
 from deker_server_adapters.array_adapter import ServerArrayAdapter
+from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
+from deker_server_adapters.factory import AdaptersFactory
+from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
 def test_create_success(
@@ -132,6 +141,42 @@ def test_read_data_deker_timeout(
         server_array_adapter.read_data(array, np.index_exp[:])
 
 
+def test_read_data_streams_the_body_in_chunks(
+    array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None, monkeypatch
+):
+    """An 8-byte int64 body arrives in three 3-byte chunks and lands in the result intact."""
+    monkeypatch.setattr(base, "READ_CHUNK_SIZE", 3)
+    data = np.array([123456789], dtype=array.dtype)
+    httpx_mock.add_response(content=data.tobytes(), url=re.compile(r".*array.*"))
+    result = server_array_adapter.read_data(array, np.index_exp[:])
+    assert np.array_equal(result, data)
+    assert result.flags.writeable
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (np.zeros(shape=(1,)).tobytes()[:-1], "7 bytes for the subset, 8 expected"),
+        (np.zeros(shape=(2,)).tobytes(), "more than 8 bytes"),
+    ],
+)
+def test_read_data_body_size_must_match_the_subset(
+    array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None, body, message
+):
+    httpx_mock.add_response(content=body, url=re.compile(r".*array.*"))
+    with pytest.raises(DekerServerError, match=message):
+        server_array_adapter.read_data(array, np.index_exp[:])
+
+
+def test_read_data_timeout_while_streaming(
+    array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None
+):
+    httpx_mock.add_response(content=np.zeros(shape=(1,)).tobytes(), url=re.compile(r".*array.*"))
+    with patch.object(ServerArrayAdapter, "_fill_from_response", side_effect=ReadTimeout("slow node")):
+        with pytest.raises(DekerTimeoutServer):
+            server_array_adapter.read_data(array, np.index_exp[:])
+
+
 def test_update_success(
     array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None
 ):
@@ -244,3 +289,125 @@ def test_read_data_returns_writable_array(
     read_data = server_array_adapter.read_data(array, np.index_exp[:])
     read_data[0] = 0
     assert read_data[0] == 0
+
+
+def test_create_from_array_instance(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, array: Array):
+    """An Array instance is sent as is and returned as is."""
+    httpx_mock.add_response(url=re.compile(r".*/arrays$"), status_code=201, json={"id": array.id})
+    assert server_array_adapter.create(array) is array
+    request = httpx_mock.get_requests()[-1]
+    assert request.method == "POST"
+    assert json.loads(request.content)["id_"] == array.id
+
+
+def test_create_response_without_id(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, array: Array, collection: Collection
+):
+    httpx_mock.add_response(url=re.compile(r".*/arrays$"), status_code=201, json={})
+    data = array.as_dict
+    with pytest.raises(DekerServerError, match="ID field"):
+        server_array_adapter.create(
+            {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
+        )
+
+
+def test_is_deleted_is_always_false(server_array_adapter: ServerArrayAdapter, array: Array):
+    assert server_array_adapter.is_deleted(array) is False
+
+
+@pytest.fixture
+def collection_with_tuple_and_custom_attributes(
+    adapter_factory: AdaptersFactory, collection_adapter: ServerCollectionAdapter
+) -> Collection:
+    schema = ArraySchema(
+        dimensions=[DimensionSchema(name="x", size=1)],
+        attributes=[
+            AttributeSchema(name="pos", dtype=tuple, primary=True),
+            AttributeSchema(name="note", dtype=str, primary=False),
+        ],
+        dtype=int,
+    )
+    return Collection(
+        name="test",
+        schema=schema,
+        adapter=collection_adapter,
+        factory=adapter_factory,
+        storage_adapter=HDF5StorageAdapter,
+    )
+
+
+def test_by_primary_uses_only_primary_attributes_and_stringifies_tuples(
+    httpx_mock: HTTPXMock,
+    server_array_adapter: ServerArrayAdapter,
+    collection_with_tuple_and_custom_attributes: Collection,
+):
+    """A tuple attribute goes into the path as ``str(tuple)``, a custom attribute does not go at all."""
+    collection = collection_with_tuple_and_custom_attributes
+    httpx_mock.add_response(status_code=404, url=re.compile(r".*/by-primary/.*"))
+    found = server_array_adapter.get_by_primary_attributes(
+        {"pos": [1, 2]}, collection.array_schema, collection, server_array_adapter, None
+    )
+    assert found is None
+    assert unquote(str(httpx_mock.get_requests()[-1].url)).endswith("/array/by-primary/(1, 2)")
+
+
+def test_by_primary_fail(
+    httpx_mock: HTTPXMock,
+    server_array_adapter: ServerArrayAdapter,
+    collection_with_primary_attributes: Collection,
+    primary_attributes: dict,
+):
+    httpx_mock.add_response(status_code=500, url=re.compile(r".*/by-primary/.*"))
+    with pytest.raises(DekerServerError):
+        server_array_adapter.get_by_primary_attributes(
+            primary_attributes,
+            collection_with_primary_attributes.array_schema,
+            collection_with_primary_attributes,
+            server_array_adapter,
+            None,
+        )
+
+
+def test_by_id_not_found(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, collection: Collection):
+    httpx_mock.add_response(status_code=404, url=re.compile(r".*/by-id/.*"))
+    assert server_array_adapter.get_by_id("id", collection, server_array_adapter, None) is None
+
+
+def test_iter_skips_a_node_that_fails_to_list_arrays(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, caplog: pytest.LogCaptureFixture
+):
+    httpx_mock.add_response(status_code=500, url=re.compile(r".*/arrays$"))
+    assert list(server_array_adapter) == []
+    assert "Couldn't fetch arrays from node" in caplog.text
+
+
+def test_iter_raises_when_varrays_cannot_be_listed(httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
+    httpx_mock.add_response(status_code=500, url=re.compile(r".*/varrays$"))
+    with pytest.raises(DekerServerError, match="list of arrays"):
+        list(server_varray_adapter)
+
+
+def test_delete_all_by_vid_reports_arrays_that_failed_to_delete(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, collection: Collection
+):
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(r".*/arrays/$"),
+        json=[
+            {"id": "tile-1", "primary_attributes": {"vid": "v"}},
+            {"id": "tile-2", "primary_attributes": {"vid": "v"}},
+            {"id": "other", "primary_attributes": {"vid": "another"}},
+        ],
+    )
+    httpx_mock.add_response(method="DELETE", url=re.compile(r".*/by-id/tile-1$"), status_code=200)
+    httpx_mock.add_response(method="DELETE", url=re.compile(r".*/by-id/tile-2$"), status_code=500)
+    with pytest.raises(DekerServerError, match=r"Failed arrays: \['tile-2'\]"):
+        server_array_adapter.delete_all_by_vid("v", collection)
+
+
+def test_delete_all_by_vid_fails_when_arrays_cannot_be_listed(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, collection: Collection
+):
+    httpx_mock.add_response(method="GET", url=re.compile(r".*/arrays/$"), status_code=500)
+    with pytest.raises(DekerServerError, match="list of the arrays"):
+        server_array_adapter.delete_all_by_vid("v", collection)

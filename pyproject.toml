@@ -265,7 +265,7 @@ omit = [
 directory = "tests/code_coverage"
 
 [tool.coverage.report]
-fail_under=80
+fail_under=100
 exclude_lines = [
     "no cov",
     "pragma: no cover",

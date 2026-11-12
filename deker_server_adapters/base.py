@@ -18,7 +18,7 @@ from httpx import Response, TimeoutException
 from numpy import ndarray
 
 from deker_server_adapters.cluster_config import ClusterConfig, Node
-from deker_server_adapters.consts import NOT_FOUND, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
+from deker_server_adapters.consts import NOT_FOUND, READ_CHUNK_SIZE, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer, FilteringByIdInClusterIsForbidden
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
@@ -221,6 +221,25 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         if not response or response.status_code != STATUS_OK:
             raise DekerServerError(response, f"Couldn't delete the {self.type.name}")
 
+    @staticmethod
+    def _fill_from_response(result: ndarray, response: Response) -> None:
+        """Copy the response body chunk by chunk into ``result``.
+
+        :param result: array to fill, its byte size must match the body
+        :param response: streamed response with the raw array bytes
+        :raises DekerServerError: if the body size differs from the array size
+        """
+        buffer = result.reshape(-1).view(np.uint8)
+        offset = 0
+        for chunk in response.iter_bytes(READ_CHUNK_SIZE):
+            end = offset + len(chunk)
+            if end > buffer.size:
+                raise DekerServerError(response, f"Server sent more than {buffer.size} bytes for the subset")
+            buffer[offset:end] = np.frombuffer(chunk, dtype=np.uint8)
+            offset = end
+        if offset != buffer.size:
+            raise DekerServerError(response, f"Server sent {offset} bytes for the subset, {buffer.size} expected")
+
     def read_data(
         self,
         array: "BaseArray",
@@ -234,20 +253,14 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """
         bounds_ = slice_converter[bounds]
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data"
+        headers = {"Accept": "application/octet-stream"}
         try:
             if self.client.cluster_mode:
                 response = request_in_cluster(
-                    url,
-                    array,
-                    self.ctx,
-                    should_check_status=True,
-                    request_kwargs={"headers": {"Accept": "application/octet-stream"}},
+                    url, array, self.ctx, should_check_status=True, request_kwargs={"headers": headers}, stream=True
                 )
             else:
-                response = self.client.get(
-                    f"{self.collection_host}{url}",
-                    headers={"Accept": "application/octet-stream"},
-                )
+                response = self.client.request("GET", f"{self.collection_host}{url}", headers=headers, stream=True)
         except TimeoutException:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} read {array}",
@@ -261,12 +274,19 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 message=f"Timeout on {self.type.name} read {array}",
             )
 
-        numpy_array = np.frombuffer(bytearray(response.read()), dtype=array.dtype)
-        shape = array[bounds].shape
-        if not shape and numpy_array.size:
-            return numpy_array[0]
-
-        return numpy_array.reshape(shape)
+        # the body is streamed straight into the result: no intermediate copy of the whole payload
+        result = np.empty(array[bounds].shape, dtype=array.dtype)
+        try:
+            self._fill_from_response(result, response)
+        except TimeoutException:
+            raise DekerTimeoutServer(
+                message=f"Timeout on {self.type.name} read {array}",
+            )
+        finally:
+            response.close()
+        if result.ndim == 0:
+            return result[()]
+        return result
 
     def update(self, array: "BaseArray", bounds: Slice, data: Numeric) -> None:
         """Update array/varray on server.
@@ -326,12 +346,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param kwargs: Kwargs for array creation
         :returns: array built from the response meta, or ``None`` if the response is empty
         """
-        if response.status_code == NOT_FOUND:
+        if response.status_code == NOT_FOUND:  # pragma: no cover  # guard: callers return None on 404 themselves
             return None
         if response.status_code == STATUS_OK:
             return create_array_from_meta(**{**kwargs, "meta": response.json()})
 
-        raise DekerServerError(response, "Couldn't fetch an array")
+        raise DekerServerError(response, "Couldn't fetch an array")  # pragma: no cover  # guard: callers raise first
 
     def get_by_primary_attributes(
         self,

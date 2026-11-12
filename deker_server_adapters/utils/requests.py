@@ -1,5 +1,3 @@
-import traceback
-
 from logging import getLogger
 from random import randint
 from typing import TYPE_CHECKING
@@ -28,6 +26,7 @@ def _request(
     method: str = "GET",
     request_kwargs: dict | None = None,
     retry_on_hash_failure: bool = False,
+    stream: bool = False,
 ) -> Response | None:
     """Internal request func - Make GET request on given node.
 
@@ -37,18 +36,20 @@ def _request(
     :param client: Httpx Client
     :param method: Http method
     :param request_kwargs: Kwargs for request
+    :param stream: leave the body of a successful response unread
     :returns: response, or ``None`` if the node did not answer
     """
     response = None
     request_url = f"{node.rstrip('/')}/{url.lstrip('/')}"
     request_kwargs = request_kwargs or {}
     try:
-        response = client.request(method, request_url, **request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
+        response = client.request(
+            method, request_url, **request_kwargs, retry_on_hash_failure=retry_on_hash_failure, stream=stream
+        )
     except InvalidConfigHash:
         raise
     except Exception as e:
-        traceback.print_exc(-1)
-        logger.exception(f"Coudn't get response from {node}", exc_info=e)  # noqa
+        logger.exception(f"Couldn't get response from {node}", exc_info=e)
 
     return response
 
@@ -60,6 +61,7 @@ def make_request(
     method: str = "GET",
     request_kwargs: dict | None = None,
     retry_on_hash_failure: bool = False,
+    stream: bool = False,
 ) -> Response | None:
     """Make GET request on random node, while response is not received.
 
@@ -69,19 +71,24 @@ def make_request(
     :param request_kwargs: Kwargs for request
     :param nodes: Nodes for requesting
     :param client: Httpx Client
+    :param stream: leave the body of a successful response unread
     :returns: first received response, or ``None`` if no node answered
     """
     response = None
     nodes = list(nodes)
     if len(nodes) == 1:
         node = nodes.pop(0)
-        response = _request(url, node, client, method, request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
+        response = _request(
+            url, node, client, method, request_kwargs, retry_on_hash_failure=retry_on_hash_failure, stream=stream
+        )
     else:
         while nodes and (response is None or response.status_code != STATUS_OK):
             index = randint(0, len(nodes) - 1)
             node = nodes.pop(index)
 
-            response = _request(url, node, client, method, request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
+            response = _request(
+                url, node, client, method, request_kwargs, retry_on_hash_failure=retry_on_hash_failure, stream=stream
+            )
 
     return response
 
@@ -110,6 +117,7 @@ def request_in_cluster(
     should_check_status: bool = False,
     method: str = "GET",
     request_kwargs: dict | None = None,
+    stream: bool = False,
 ) -> Response | None:
     """Make request in cluster.
 
@@ -122,6 +130,7 @@ def request_in_cluster(
     :param should_check_status: If we should check whether the file has been moved or not
     :param method: Http method
     :param request_kwargs: Extra data for request
+    :param stream: leave the body of a successful response unread
     :returns: response from the node responsible for the array, or ``None`` if it did not answer
     """
 
@@ -147,7 +156,11 @@ def request_in_cluster(
     # TODO: Lock acquiring logic if needed
     # Make request
     try:
-        return make_request(url, [target_node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
+        return make_request(
+            url, [target_node.url.raw_url], client, method=method, request_kwargs=request_kwargs, stream=stream
+        )
     except InvalidConfigHash:
         updated_node = _check_status(target_node)
-        return make_request(url, [updated_node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
+        return make_request(
+            url, [updated_node.url.raw_url], client, method=method, request_kwargs=request_kwargs, stream=stream
+        )

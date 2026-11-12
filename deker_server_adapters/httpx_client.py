@@ -12,6 +12,7 @@ from deker_server_adapters.consts import (
     LAST_MODIFIED_HEADER,
     NON_LEADER_WRITE,
     RATE_ERROR_MESSAGE,
+    STATUS_OK,
     TOO_LARGE_ERROR_MESSAGE,
     TOO_MANY_REQUESTS,
 )
@@ -50,21 +51,40 @@ class HttpxClient(Client):
     ctx: CTX
     cluster_mode: bool = False
 
-    def request(self, *args: Any, retry_on_hash_failure: bool = False, **kwargs: Any) -> Response:
+    def _send(self, *args: Any, stream: bool, **kwargs: Any) -> Response:
+        """Send a request, leaving the body of a successful response unread when ``stream`` is set.
+
+        Any other response is read in full at once, so error handling and node fallback
+        never meet an unread body.
+
+        :param *args: arguments to request
+        :param stream: do not read the body of a ``200`` response
+        :param **kwargs: keyword arguments to request
+        :returns: server response
+        """
+        if not stream:
+            return super().request(*args, **kwargs)
+        response = self.send(self.build_request(*args, **kwargs), stream=True)
+        if response.status_code != STATUS_OK:
+            response.read()
+        return response
+
+    def request(self, *args: Any, retry_on_hash_failure: bool = False, stream: bool = False, **kwargs: Any) -> Response:
         """Override httpx method to handle rate errors.
 
         :param *args: arguments to request
         :param retry_on_hash_failure: If we should retry on invalid hash
+        :param stream: leave the body of a successful response unread, to be consumed by the caller
         :param **kwargs: keyword arguments to request
         :returns: server response
         """
-        response = super().request(*args, **kwargs)
+        response = self._send(*args, stream=stream, **kwargs)
         if response.status_code == CONFLICT_HASH:
             apply_config(response.json(), self.ctx)
             if LAST_MODIFIED_HEADER in response.headers:
                 self.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})
             if retry_on_hash_failure:
-                response = super().request(*args, **kwargs)
+                response = self._send(*args, stream=stream, **kwargs)
             else:
                 raise InvalidConfigHash("Cluster hash conflict")
 
@@ -78,6 +98,6 @@ class HttpxClient(Client):
 
         if response.status_code == NON_LEADER_WRITE:
             apply_config(response.json(), self.ctx)
-            return super().request(*args, **kwargs)
+            return self._send(*args, stream=stream, **kwargs)
 
         return response
