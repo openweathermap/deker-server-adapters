@@ -1,7 +1,6 @@
 import re
 
 from dataclasses import asdict
-from typing import Dict
 
 import pytest
 
@@ -37,7 +36,7 @@ def test_auth_factory_close(ctx, mock_ping):
     assert factory.httpx_client.is_closed
 
 
-def test_ctx_has_values_from_server(ctx, mocked_ping: Dict, mock_ping):
+def test_ctx_has_values_from_server(ctx, mocked_ping: dict, mock_ping):
     uri = Uri.create("http://test:test@localhost/")
     kwargs = {key: getattr(uri, key) for key in uri._fields}
     kwargs["servers"] = ["http://localhost:8000"]
@@ -48,10 +47,10 @@ def test_ctx_has_values_from_server(ctx, mocked_ping: Dict, mock_ping):
     adapter = factory.get_array_adapter("/coll", HDF5StorageAdapter)
 
     assert sorted([asdict(node) for node in vadapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
-        [node for node in mocked_ping["current"]], key=lambda x: x["id"]
+        [*mocked_ping["current"]], key=lambda x: x["id"]
     )
     assert sorted([asdict(node) for node in adapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
-        [node for node in mocked_ping["current"]], key=lambda x: x["id"]
+        [*mocked_ping["current"]], key=lambda x: x["id"]
     )
 
 
@@ -87,10 +86,10 @@ def test_factory_get_config_from_single_server(ctx, mock_ping, mocked_ping):
     adapter = factory.get_array_adapter("/coll", HDF5StorageAdapter)
 
     assert sorted([asdict(node) for node in vadapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
-        [node for node in mocked_ping["current"]], key=lambda x: x["id"]
+        [*mocked_ping["current"]], key=lambda x: x["id"]
     )
     assert sorted([asdict(node) for node in adapter.hash_ring.nodes], key=lambda x: x["id"]) == sorted(
-        [node for node in mocked_ping["current"]], key=lambda x: x["id"]
+        [*mocked_ping["current"]], key=lambda x: x["id"]
     )
 
 

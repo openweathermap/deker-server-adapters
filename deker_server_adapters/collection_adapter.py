@@ -65,6 +65,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
         """Read collection metadata.
 
         :param name: Name of collection
+        :returns: collection metadata as a dict
         """
         url = f"{self.collection_url_prefix}/{name}"
         if self.client.cluster_mode:

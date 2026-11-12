@@ -1,6 +1,8 @@
+import builtins
+
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Type, Union
+from typing import TYPE_CHECKING, Union
 
 from deker.ABC.base_adapters import BaseStorageAdapter, BaseVArrayAdapter
 from deker.ctx import CTX
@@ -22,7 +24,7 @@ class ServerVarrayAdapter(ServerArrayAdapterMixin, BaseVArrayAdapter):
         collection_path: Union["Uri", Path],
         ctx: CTX,
         executor: ThreadPoolExecutor,
-        storage_adapter: Type["BaseStorageAdapter"],
+        storage_adapter: builtins.type["BaseStorageAdapter"],  # `type` is shadowed by the class attribute
     ) -> None:
         super().__init__(
             collection_path,

@@ -22,7 +22,7 @@ def test_collection_create(
     assert collection_adapter.create(collection) is None
 
 
-@pytest.mark.parametrize("method", ("create", "delete", "read", "clear"))
+@pytest.mark.parametrize("method", ["create", "delete", "read", "clear"])
 def test_collection_raises_500(
     method: str,
     collection_adapter: ServerCollectionAdapter,

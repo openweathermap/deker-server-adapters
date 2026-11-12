@@ -1,4 +1,4 @@
-from typing import Any, Type
+from typing import Any
 
 from deker.ctx import CTX
 from deker.errors import DekerMemoryError
@@ -23,7 +23,7 @@ from deker_server_adapters.errors import (
 )
 
 
-def rate_limit_err(response: Response, message: str, class_: Type[DekerBaseRateLimitError]) -> None:
+def rate_limit_err(response: Response, message: str, class_: type[DekerBaseRateLimitError]) -> None:
     """Raise an error with rate limit parameters.
 
     This function incapsulates logic of fetching rates from headers
@@ -53,9 +53,10 @@ class HttpxClient(Client):
     def request(self, *args: Any, retry_on_hash_failure: bool = False, **kwargs: Any) -> Response:
         """Override httpx method to handle rate errors.
 
-        :param args: arguments to request
+        :param *args: arguments to request
         :param retry_on_hash_failure: If we should retry on invalid hash
-        :param kwargs: keyword arguments to request
+        :param **kwargs: keyword arguments to request
+        :returns: server response
         """
         response = super().request(*args, **kwargs)
         if response.status_code == CONFLICT_HASH:

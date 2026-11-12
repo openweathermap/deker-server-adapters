@@ -48,7 +48,7 @@ def test_create_fails_no_id(
 
 @pytest.mark.parametrize(
     ("method", "args"),
-    (
+    [
         ("create", ()),
         ("delete", ()),
         ("read_meta", ()),
@@ -59,7 +59,7 @@ def test_create_fails_no_id(
             (np.index_exp[:]),
         ),
         ("update", (np.index_exp[:], np.zeros(shape=(1,)))),
-    ),
+    ],
 )
 def test_collection_raises_500(
     method: str,
@@ -236,7 +236,7 @@ def test_read_data_single_number(
     assert server_array_adapter.read_data(array, np.index_exp[0]) == data[0]
 
 
-def test_read_data_single_number(
+def test_read_data_returns_writable_array(
     array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, collection: Collection, mock_status
 ):
     data = np.zeros(shape=(1,))

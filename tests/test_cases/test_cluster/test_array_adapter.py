@@ -1,7 +1,7 @@
 import json
 import re
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import httpx
 import numpy as np
@@ -16,7 +16,6 @@ from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
 from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key
-
 
 if TYPE_CHECKING:
     from httpx import Request
@@ -51,7 +50,7 @@ def test_array_generate_id(array: Array, server_array_adapter: ServerArrayAdapte
     data = array.as_dict
     data.update({"id": None, "id_": None, "primary_attributes": {}})
     server_array_adapter.create({**data, "adapter": server_array_adapter, "collection": collection})
-    requests: List[Request] = httpx_mock.get_requests()
+    requests: list[Request] = httpx_mock.get_requests()
     for request in requests:
         if request.method == "POST":
             assert json.loads(request.content.decode())["id_"]

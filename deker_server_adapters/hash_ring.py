@@ -2,25 +2,23 @@ import hashlib
 import math
 
 from bisect import bisect
-from typing import TYPE_CHECKING, Callable, Generator, List, Optional, Set, Tuple, TypeVar, Union
+from collections.abc import Callable
+from typing import Generic, TypeVar
 
 from deker_server_adapters.errors import HashRingError
 
-if TYPE_CHECKING:
-    from deker_server_adapters.cluster_config import Node
-
 md5_constructor = hashlib.md5
 
-T = TypeVar("T")
+NodeT = TypeVar("NodeT")
 
 
-class HashRing:
-    """Class for hash ring."""
+class HashRing(Generic[NodeT]):
+    """Consistent hash ring over nodes of any type with a stable ``str()`` representation."""
 
-    def _hash_val(self, b_key: List[int], entry_fn: Callable) -> int:
+    def _hash_val(self, b_key: list[int], entry_fn: Callable) -> int:
         return (b_key[entry_fn(3)] << 24) | (b_key[entry_fn(2)] << 16) | (b_key[entry_fn(1)] << 8) | b_key[entry_fn(0)]
 
-    def _hash_digest(self, key: str) -> List[int]:
+    def _hash_digest(self, key: str) -> list[int]:
         m = md5_constructor()
         m.update(key.encode())
         return [int(str(letter)) for letter in m.digest()]  # , m.digest()))
@@ -45,29 +43,27 @@ class HashRing:
 
         self._sorted_keys.sort()
 
-    def __init__(self, nodes: Union[List["Node"], Tuple["Node", ...], Set["Node"]], weights: Optional[dict] = None):
+    def __init__(self, nodes: list[NodeT] | tuple[NodeT, ...] | set[NodeT], weights: dict[NodeT, int] | None = None):
         """Generate instance of hash ring with given nodes.
 
         :param nodes: is a list of objects that have a proper __str__ representation.
         :param weights: is dictionary that sets weights to the nodes.  The default
         weight is that all nodes are equal.
         """
-        self.ring = {}  # type: ignore[var-annotated]
-        self._sorted_keys = []  # type: ignore[var-annotated]
+        self.ring: dict[int, NodeT] = {}
+        self._sorted_keys: list[int] = []
 
-        self.nodes: Union[List["Node"], Tuple["Node", ...], Set["Node"]] = nodes
-
-        if not weights:
-            weights = {}  # type: ignore[var-annotated]
-        self.weights = weights
+        self.nodes: list[NodeT] | tuple[NodeT, ...] | set[NodeT] = nodes
+        self.weights: dict[NodeT, int] = weights or {}
 
         self._generate_circle()
 
-    def get_node(self, string_key: str) -> "Node":
+    def get_node(self, string_key: str) -> NodeT:
         """Return hash ring by given a string key a corresponding node.
 
         If the hash ring is empty, `None` is returned.
         :param string_key: String key
+        :returns: node responsible for the key
         """
         pos = self.get_node_pos(string_key)
         if pos is None:
@@ -75,13 +71,14 @@ class HashRing:
             raise HashRingError(msg)
         return self.ring[self._sorted_keys[pos]]
 
-    def get_node_pos(self, string_key: str) -> Optional[int]:
+    def get_node_pos(self, string_key: str) -> int | None:
         """Return node and position.
 
         Given a string key a corresponding node in the hash ring
         is returned along with it's position in the ring.
         If the hash ring is empty, (`None`, `None`) is returned.
         :param string_key: String key
+        :returns: position of the node in the ring, or ``None`` if the ring is empty
         """
         if not self.ring:
             return None
@@ -95,48 +92,13 @@ class HashRing:
             return 0
         return pos
 
-    def iterate_nodes(self, string_key: str, distinct: bool = True) -> Generator:  # noqa
-        """Given a string key it returns the nodes as a generator that can hold the key.
-
-        The generator iterates one time through the ring
-        starting at the correct position.
-        :param string_key: string key
-        :param distinct: is set, then the nodes returned will be unique,
-        i.e. no virtual copies will be returned.
-        """
-        if not self.ring:
-            yield None, None
-
-        returned_values = set()
-
-        def distinct_filter(value: str) -> Optional[str]:
-            """Do filtration on used values.
-
-            :param value: Value to check
-            """
-            if str(value) not in returned_values:
-                returned_values.add(str(value))
-                return value
-            return None
-
-        pos = self.get_node_pos(string_key)
-        for key in self._sorted_keys[pos:]:
-            val = distinct_filter(self.ring[key])
-            if val:
-                yield val
-
-        for i, key in enumerate(self._sorted_keys):
-            if i < pos:  # type: ignore[operator]
-                val = distinct_filter(self.ring[key])
-                if val:
-                    yield val
-
     def gen_key(self, key: str) -> int:
         """Given a string key it returns a long value.
 
         this long value represents a place on the hash ring.
         md5 is currently used because it mixes well.
         :param key: a string key
+        :returns: integer position of the key on the hash ring
         """
         b_key = self._hash_digest(key)
         return self._hash_val(b_key, lambda x: x)

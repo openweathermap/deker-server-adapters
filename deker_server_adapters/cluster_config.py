@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from functools import cached_property
 from json import JSONDecodeError
-from typing import List, Optional
 
 from deker.ctx import CTX
 from deker.uri import Uri
@@ -22,8 +21,8 @@ class Node:
     host: str
     port: str
     protocol: str = "http"
-    id: Optional[str] = None
-    storage: Optional[str] = None
+    id: str | None = None
+    storage: str | None = None
 
     @cached_property
     def url(self) -> Uri:
@@ -45,21 +44,22 @@ class ClusterConfig:
 
     mode: str
     leader: Node
-    current: List[Node]
-    target: Optional[List[Node]] = None  # Only appears when cluster in rebalancing mode
-    cluster_status: Optional[str] = ""
-    __hash_ring: HashRing = field(init=False)
-    __hash_ring_target: HashRing = field(init=False)
+    current: list[Node]
+    target: list[Node] | None = None  # Only appears when cluster in rebalancing mode
+    cluster_status: str | None = ""
+    __hash_ring: HashRing[Node] = field(init=False)
+    __hash_ring_target: HashRing[Node] = field(init=False)
 
     @classmethod
     def from_dict(cls, cluster_config_dict: dict) -> "ClusterConfig":
         """Create cluster config from dict.
 
         :param cluster_config_dict: Cluster configuration that comes from server.
+        :returns: ClusterConfig instance
         """
         leader_id = cluster_config_dict["leader_id"]
 
-        def process_nodes(nodes: List[dict]) -> List[Node]:
+        def process_nodes(nodes: list[dict]) -> list[Node]:
             node_list = [Node(**node_dict) for node_dict in nodes]
             node_list.sort(key=lambda x: str(x))
             return node_list
@@ -84,11 +84,12 @@ class ClusterConfig:
         )
 
 
-def is_config_in_cluster_mode(config: Optional[dict], ctx: CTX) -> bool:
+def is_config_in_cluster_mode(config: dict | None, ctx: CTX) -> bool:
     """Check if mode from config is set to cluster.
 
     :param config: Config from response
     :param ctx: Context of app
+    :returns: ``True`` if the server runs in cluster mode
     """
     if not ctx.uri.servers:
         return config is not None and config.get("mode") == CLUSTER_MODE
@@ -96,8 +97,7 @@ def is_config_in_cluster_mode(config: Optional[dict], ctx: CTX) -> bool:
     if config is None or config.get("mode") != CLUSTER_MODE:
         raise DekerClusterError(
             config,
-            "Server responded with wrong config."
-            " Key 'mode' either doesn't exist or its value differs from 'cluster'",
+            "Server responded with wrong config. Key 'mode' either doesn't exist or its value differs from 'cluster'",
         )
 
     return True
@@ -145,7 +145,7 @@ def request_and_apply_config(ctx: CTX) -> None:
         )
 
     try:
-        config = response.json()  # type: ignore[union-attr]
+        config = response.json()
         if is_config_in_cluster_mode(config, ctx):
             # Set hash of config
             httpx_client.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})

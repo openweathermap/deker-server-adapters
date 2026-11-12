@@ -1,6 +1,8 @@
+import builtins
+
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Type, Union
+from typing import TYPE_CHECKING, Union
 
 from deker.ABC.base_adapters import BaseArrayAdapter, BaseStorageAdapter
 from deker.ctx import CTX
@@ -27,7 +29,7 @@ class ServerArrayAdapter(ServerArrayAdapterMixin, BaseArrayAdapter):
         collection_path: Union["Uri", Path],
         ctx: CTX,
         executor: ThreadPoolExecutor,
-        storage_adapter: Type["BaseStorageAdapter"],
+        storage_adapter: builtins.type["BaseStorageAdapter"],  # `type` is shadowed by the class attribute
     ) -> None:
         super().__init__(
             collection_path,
@@ -53,6 +55,7 @@ class ServerArrayAdapter(ServerArrayAdapterMixin, BaseArrayAdapter):
                 """Try to delete array with given id.
 
                 :param id_: Id of array.
+                :returns: ``True`` if the array was deleted, ``False`` if the server reported a failure
                 """
                 try:
                     response = self.client.delete(f"{self.collection_path.raw_url}/array/by-id/{id_}")

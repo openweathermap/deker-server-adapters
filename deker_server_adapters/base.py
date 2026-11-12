@@ -2,7 +2,7 @@ import logging
 
 from collections.abc import Generator
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
@@ -35,12 +35,13 @@ def create_array_from_meta(
     type: ArrayType,
     *args: Any,
     **kwargs: Any,
-) -> Union[Array, VArray]:
+) -> Array | VArray:
     """Override class method.
 
     :param type: Type of Array
-    :param args: Create array meta params
-    :param kwargs: Create array meta kwargs
+    :param *args: Create array meta params
+    :param **kwargs: Create array meta kwargs
+    :returns: Array or VArray built from its meta
     """
     class_ = type.value
     return class_._create_from_meta(*args, **kwargs)
@@ -55,28 +56,28 @@ class BaseServerAdapterMixin:
     def client(self) -> HttpxClient:
         """Return client singleton."""
         # We don't need to worry about passing args here, cause it's a singleton.
-        return self.ctx.extra["httpx_client"]  # type: ignore[attr-defined]
+        return self.ctx.extra["httpx_client"]
 
     @property
-    def hash_ring(self) -> HashRing:
+    def hash_ring(self) -> HashRing[Node]:
         """Return HashRing instance."""
         hash_ring = self.ctx.extra.get("hash_ring")
         if not hash_ring:
             msg = "Attempt to use cluster logic in single server mode"
             raise AttributeError(msg)
-        return hash_ring  # type: ignore[attr-defined]
+        return hash_ring
 
     @property
-    def nodes(self) -> List[Node]:
+    def nodes(self) -> list[Node]:
         """Return list of nodes."""
-        config: ClusterConfig = self.ctx.extra.get("cluster_config")  # type: ignore[attr-defined]
+        config: ClusterConfig = self.ctx.extra.get("cluster_config")
         if not config:
             host, port = self.ctx.uri.netloc.split(":")
             return [Node(host=host, port=port, protocol=self.ctx.uri.scheme)]
         return config.current
 
     @property
-    def nodes_urls(self) -> List[str]:
+    def nodes_urls(self) -> list[str]:
         """Raw urls of the nodes."""
         return [node.url.raw_url for node in self.nodes]
 
@@ -91,17 +92,14 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """Create new url from collection_path path and node host.
 
         :param node: Node to merge with
+        :returns: node host joined with the collection path
         """
         return f"{node.rstrip('/')}{self.collection_path.path}"
 
     @property
     def collection_host(self) -> str:
         """Merge scheme with it's path."""
-        return (
-            f"{self.collection_path.scheme}"
-            f"{Uri.__annotations__['netloc']['separator']}"
-            f"{self.collection_path.netloc}"
-        )
+        return f"{self.collection_path.scheme}{Uri.__annotations__['netloc']['separator']}{self.collection_path.netloc}"
 
     @property
     def path_stripped(self) -> str:
@@ -112,6 +110,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """Create array on server.
 
         :param array: Array instance or dict
+        :returns: created Array or VArray instance
         """
         if isinstance(array, dict):
             primary_attributes = array["primary_attributes"]
@@ -129,12 +128,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             "id_": id_,
         }
 
-        request_kwargs = {"json": kwargs}
+        request_kwargs: dict[str, Any] = {"json": kwargs}
         url = f"{self.path_stripped}/{self.type.name}s"
         if self.type == ArrayType.array and self.client.cluster_mode:
             response = request_in_cluster(url, array, self.ctx, method="POST", request_kwargs=request_kwargs)
         else:
-            response = self.client.post(f"{self.collection_host}{url}", **request_kwargs)  # type: ignore[arg-type]
+            response = self.client.post(f"{self.collection_host}{url}", **request_kwargs)
 
         if not response or response.status_code != STATUS_CREATED:
             raise DekerServerError(response, "Couldn't create an array")
@@ -197,13 +196,13 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         # Writing is always on leader node for non array
 
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}"
-        request_kwargs = {"json": {"custom_attributes": convert_datetime_attrs_to_iso(attributes)}}
+        request_kwargs: dict[str, Any] = {"json": {"custom_attributes": convert_datetime_attrs_to_iso(attributes)}}
         if self.client.cluster_mode and self.type == ArrayType.array:
             response = request_in_cluster(
                 url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
             )
         else:
-            response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)  # type: ignore[arg-type]
+            response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
         if not response or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't update attributes")
 
@@ -226,7 +225,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         self,
         array: "BaseArray",
         bounds: Slice,
-    ) -> Union[Numeric, ndarray, None]:
+    ) -> Numeric | ndarray | None:
         """Read data from array/varray.
 
         :param array: From what array we read
@@ -262,7 +261,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 message=f"Timeout on {self.type.name} read {array}",
             )
 
-        numpy_array = np.frombuffer(bytearray(response.read()), dtype=array.dtype)  # type: ignore[call-overload]
+        numpy_array = np.frombuffer(bytearray(response.read()), dtype=array.dtype)
         shape = array[bounds].shape
         if not shape and numpy_array.size:
             return numpy_array[0]
@@ -278,11 +277,11 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """
         bounds = slice_converter[bounds]
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data"
-        request_kwargs = {"headers": {"Content-Type": "application/octet-stream"}}
+        request_kwargs: dict[str, Any] = {"headers": {"Content-Type": "application/octet-stream"}}
         if hasattr(data, "tobytes"):
             request_kwargs["data"] = data.tobytes()
         else:
-            request_kwargs["data"] = bytes(data)  # type: ignore
+            request_kwargs["data"] = bytes(data)
         # We write (v)array through the node it belongs in cluster
         try:
             if self.client.cluster_mode:
@@ -290,7 +289,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                     url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
                 )
             else:
-                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)  # type: ignore
+                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
         except TimeoutException:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} update {array}",
@@ -316,14 +315,16 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """Check if array/varray was deleted on server.
 
         :param array: Instance of array/varray
+        :returns: ``True`` if the array no longer exists on the server
         """
         return False
 
-    def __create_array_from_response(self, response: Response, kwargs: Dict) -> Optional[BaseArray]:
+    def __create_array_from_response(self, response: Response, kwargs: dict) -> BaseArray | None:
         """Create array from json meta.
 
         :param response: response from server
         :param kwargs: Kwargs for array creation
+        :returns: array built from the response meta, or ``None`` if the response is empty
         """
         if response.status_code == NOT_FOUND:
             return None
@@ -347,6 +348,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :param collection: Collection instance
         :param array_adapter: Adapter of arrays
         :param varray_adapter: Adapter of varrays
+        :returns: matching Array or VArray, or ``None`` if nothing was found
         """
         attrs = []
         primary_attributes = convert_datetime_attrs_to_iso(primary_attributes)
@@ -355,9 +357,9 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 continue
 
             if attr.dtype == tuple:
-                attrs.append(str(tuple(primary_attributes[attr.name])))  # type: ignore[index]
+                attrs.append(str(tuple(primary_attributes[attr.name])))
             else:
-                attrs.append(str(primary_attributes[attr.name]))  # type: ignore[index]
+                attrs.append(str(primary_attributes[attr.name]))
 
         primary_path = "/".join(attrs)
 

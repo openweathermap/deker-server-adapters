@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Type
+from typing import TYPE_CHECKING, Any
 
 from deker.ABC.base_factory import BaseAdaptersFactory
 from deker.ctx import CTX
@@ -62,7 +62,7 @@ class AdaptersFactory(BaseAdaptersFactory):
     def get_array_adapter(
         self,
         collection_path: Uri,
-        storage_adapter: Type["BaseStorageAdapter"],
+        storage_adapter: type["BaseStorageAdapter"],
         *args: Any,
         **kwargs: Any,
     ) -> "BaseArrayAdapter":
@@ -70,8 +70,9 @@ class AdaptersFactory(BaseAdaptersFactory):
 
         :param storage_adapter: Type of storage adapter
         :param collection_path: URI of collection
-        :param args: Won't be passed further
-        :param kwargs: Won't be passed further
+        :param *args: Won't be passed further
+        :param **kwargs: Won't be passed further
+        :returns: ServerArrayAdapter instance
         """
         return ServerArrayAdapter(
             collection_path=collection_path,
@@ -83,7 +84,7 @@ class AdaptersFactory(BaseAdaptersFactory):
     def get_varray_adapter(
         self,
         collection_path: Uri,
-        storage_adapter: Type["BaseStorageAdapter"],
+        storage_adapter: type["BaseStorageAdapter"],
         *args: Any,
         **kwargs: Any,
     ) -> "BaseVArrayAdapter":
@@ -91,8 +92,9 @@ class AdaptersFactory(BaseAdaptersFactory):
 
         :param storage_adapter: Type of storage adapter
         :param collection_path: URI of collection
-        :param args: Won't be passed further
-        :param kwargs: Won't be passed further
+        :param *args: Won't be passed further
+        :param **kwargs: Won't be passed further
+        :returns: ServerVarrayAdapter instance
         """
         return ServerVarrayAdapter(
             collection_path=collection_path,
@@ -108,7 +110,8 @@ class AdaptersFactory(BaseAdaptersFactory):
     ) -> "BaseCollectionAdapter":
         """Make server collection adapter.
 
-        :param args: Won't be passed further
-        :param kwargs: Won't be passed further
+        :param *args: Won't be passed further
+        :param **kwargs: Won't be passed further
+        :returns: ServerCollectionAdapter instance
         """
         return ServerCollectionAdapter(self.ctx)

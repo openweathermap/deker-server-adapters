@@ -2,7 +2,7 @@ import traceback
 
 from logging import getLogger
 from random import randint
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING
 
 from deker.ABC import BaseArray
 from deker.ctx import CTX
@@ -26,9 +26,9 @@ def _request(
     node: str,
     client: "HttpxClient",
     method: str = "GET",
-    request_kwargs: Optional[Dict] = None,
+    request_kwargs: dict | None = None,
     retry_on_hash_failure: bool = False,
-) -> Optional[Response]:
+) -> Response | None:
     """Internal request func - Make GET request on given node.
 
     :param url: What we request
@@ -37,6 +37,7 @@ def _request(
     :param client: Httpx Client
     :param method: Http method
     :param request_kwargs: Kwargs for request
+    :returns: response, or ``None`` if the node did not answer
     """
     response = None
     request_url = f"{node.rstrip('/')}/{url.lstrip('/')}"
@@ -54,12 +55,12 @@ def _request(
 
 def make_request(
     url: str,
-    nodes: Union[List, Tuple, Set],
+    nodes: list | tuple | set,
     client: "HttpxClient",
     method: str = "GET",
-    request_kwargs: Optional[Dict] = None,
+    request_kwargs: dict | None = None,
     retry_on_hash_failure: bool = False,
-) -> Optional[Response]:
+) -> Response | None:
     """Make GET request on random node, while response is not received.
 
     :param retry_on_hash_failure: If we should retry on invalid hash
@@ -68,6 +69,7 @@ def make_request(
     :param request_kwargs: Kwargs for request
     :param nodes: Nodes for requesting
     :param client: Httpx Client
+    :returns: first received response, or ``None`` if no node answered
     """
     response = None
     nodes = list(nodes)
@@ -89,6 +91,7 @@ def check_status(ctx: CTX, array: BaseArray) -> Status:
 
     :param ctx: Application context
     :param array: Instance of array to check
+    :returns: status of the array file on the server
     """
     client: "HttpxClient" = ctx.extra["httpx_client"]
     node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
@@ -106,8 +109,8 @@ def request_in_cluster(
     ctx: CTX,
     should_check_status: bool = False,
     method: str = "GET",
-    request_kwargs: Optional[dict] = None,
-) -> Optional[Response]:
+    request_kwargs: dict | None = None,
+) -> Response | None:
     """Make request in cluster.
 
     Before sending request, it retrieves a fresh config from the server.
@@ -119,12 +122,14 @@ def request_in_cluster(
     :param should_check_status: If we should check whether the file has been moved or not
     :param method: Http method
     :param request_kwargs: Extra data for request
+    :returns: response from the node responsible for the array, or ``None`` if it did not answer
     """
 
     def _check_status(initial_node: "Node") -> "Node":
         """Closure for getting status of config file on the server and retrieving correct node for request.
 
         :param initial_node: Node to return if there are no updates.
+        :returns: node that currently holds the array
         """
         if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
             status = check_status(ctx, array)

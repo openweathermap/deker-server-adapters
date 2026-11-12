@@ -57,7 +57,7 @@ def test_create_fails_no_id(
 
 @pytest.mark.parametrize(
     ("method", "args"),
-    (
+    [
         ("create", ()),
         ("delete", ()),
         ("read_meta", ()),
@@ -65,7 +65,7 @@ def test_create_fails_no_id(
         ("update_meta_custom_attributes", ({"foo": "bar"},)),
         ("read_data", (np.index_exp[:])),
         ("update", (np.index_exp[:], np.zeros(shape=(1,)))),
-    ),
+    ],
 )
 def test_collection_raises_500(
     method: str,

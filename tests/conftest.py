@@ -1,7 +1,6 @@
 import re
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Literal
 from uuid import uuid4
 
 import pytest
@@ -20,11 +19,9 @@ from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.consts import LAST_MODIFIED_HEADER, NORMAL_STATUS, REBALANCING_STATUS
 from deker_server_adapters.factory import AdaptersFactory
-from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils.version import get_api_version
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
-
 
 CLUSTER_MODE = "cluster"
 SINGLE_MODE = "single"
@@ -33,7 +30,7 @@ SINGLE_MODE = "single"
 pytest_plugins = ["tests.plugins.cluster"]
 
 
-def pytest_collection_modifyitems(items: List[pytest.Item]) -> None:
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     # keep pytest-httpx<0.31 semantics: responses are reusable, unmatched requests just time out (cluster failover)
     for item in items:
         item.add_marker(
@@ -51,7 +48,7 @@ def status(request) -> str:
     return request.param
 
 
-@pytest.fixture()
+@pytest.fixture
 def base_uri(mode, base_cluster_uri):
     if mode == SINGLE_MODE:
         return Uri.create("http://localhost:8000")
@@ -59,13 +56,13 @@ def base_uri(mode, base_cluster_uri):
     return base_cluster_uri
 
 
-@pytest.fixture()
+@pytest.fixture
 def collection_path(base_uri: Uri, collection: Collection) -> Uri:
     return base_uri / f"{get_api_version()}/collection/{collection.name}"
 
 
-@pytest.fixture()
-def ctx(mode, base_uri: Uri, nodes: List[dict], mocked_ping: dict) -> CTX:
+@pytest.fixture
+def ctx(mode, base_uri: Uri, nodes: list[dict], mocked_ping: dict) -> CTX:
     ctx = CTX(
         uri=base_uri,
         config=DekerConfig(
@@ -87,8 +84,8 @@ def ctx(mode, base_uri: Uri, nodes: List[dict], mocked_ping: dict) -> CTX:
         yield ctx
 
 
-@pytest.fixture()
-def mock_ping(mode: str, httpx_mock: HTTPXMock, mocked_ping: Dict):
+@pytest.fixture
+def mock_ping(mode: str, httpx_mock: HTTPXMock, mocked_ping: dict):
     if mode == CLUSTER_MODE:
         httpx_mock.add_response(
             method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping, headers={LAST_MODIFIED_HEADER: "foo"}
@@ -97,12 +94,12 @@ def mock_ping(mode: str, httpx_mock: HTTPXMock, mocked_ping: Dict):
         httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), status_code=200)
 
 
-@pytest.fixture()
+@pytest.fixture
 def adapter_factory(mode: str, ctx: CTX, base_uri: Uri, mock_ping) -> AdaptersFactory:
     return AdaptersFactory(ctx, uri=base_uri)
 
 
-@pytest.fixture()
+@pytest.fixture
 def server_array_adapter(collection_path: Uri, ctx: CTX, adapter_factory) -> ServerArrayAdapter:
     return ServerArrayAdapter(
         collection_path,
@@ -112,7 +109,7 @@ def server_array_adapter(collection_path: Uri, ctx: CTX, adapter_factory) -> Ser
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def server_varray_adapter(collection_path: Uri, ctx: CTX, adapter_factory) -> ServerVarrayAdapter:
     return ServerVarrayAdapter(
         collection_path,
@@ -122,12 +119,12 @@ def server_varray_adapter(collection_path: Uri, ctx: CTX, adapter_factory) -> Se
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def collection_adapter(ctx: CTX) -> ServerCollectionAdapter:
     return ServerCollectionAdapter(ctx)
 
 
-@pytest.fixture()
+@pytest.fixture
 def collection(adapter_factory: AdaptersFactory, collection_adapter: ServerCollectionAdapter) -> Collection:
     array_schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=1)], dtype=int)
     return Collection(
@@ -160,7 +157,7 @@ def collection_with_primary_attributes(
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def varray_collection(collection_adapter: ServerCollectionAdapter, adapter_factory: AdaptersFactory) -> Collection:
     varray_schema = VArraySchema(dimensions=[DimensionSchema(name="x", size=1)], dtype=int, vgrid=(1,))
     return Collection(
@@ -172,7 +169,7 @@ def varray_collection(collection_adapter: ServerCollectionAdapter, adapter_facto
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def varray_collection_with_primary_attributes(
     collection_adapter: ServerCollectionAdapter, adapter_factory: AdaptersFactory
 ) -> Collection:
@@ -194,24 +191,24 @@ def varray_collection_with_primary_attributes(
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def primary_attributes() -> dict:
     return {"foo": "bar", "bar": "baz"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def array(collection: Collection, server_array_adapter: ServerArrayAdapter) -> Array:
     return Array(collection, server_array_adapter)
 
 
-@pytest.fixture()
+@pytest.fixture
 def array_with_attributes(
     collection_with_primary_attributes: Collection, server_array_adapter: ServerArrayAdapter, primary_attributes: dict
 ) -> Array:
     return Array(collection_with_primary_attributes, server_array_adapter, primary_attributes=primary_attributes)
 
 
-@pytest.fixture()
+@pytest.fixture
 def varray(varray_collection: Collection, adapter_factory: AdaptersFactory) -> VArray:
     """Returns an instance of VArray."""
     return VArray(
@@ -224,7 +221,7 @@ def varray(varray_collection: Collection, adapter_factory: AdaptersFactory) -> V
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def varray_with_attributes(
     varray_collection_with_primary_attributes: Collection, adapter_factory: AdaptersFactory, primary_attributes: dict
 ) -> VArray:
@@ -238,17 +235,17 @@ def varray_with_attributes(
     )
 
 
-@pytest.fixture()
-def rate_limits_headers() -> Dict:
+@pytest.fixture
+def rate_limits_headers() -> dict:
     return {"RateLimit-Limit": "10", "RateLimit-Remaining": "10", "RateLimit-Reset": "60"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def array_url_path(array: Array) -> str:
     return f"/{get_api_version()}/collection/{array.collection}/array/by-id/{array.id}"
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_status(mode: str, request: pytest.FixtureRequest, status: str):
     if mode == CLUSTER_MODE and status == REBALANCING_STATUS:
         request.getfixturevalue("mocked_filestatus_check_unmoved")

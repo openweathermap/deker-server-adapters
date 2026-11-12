@@ -1,7 +1,7 @@
 import json
 import re
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import httpx
@@ -18,12 +18,11 @@ from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
-
 if TYPE_CHECKING:
     from httpx import Request
 
 
-def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: List[str]):
+def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: list[str]):
     with patch.object(varray, "primary_attributes", {}):
         # Check window slides
 
@@ -31,7 +30,7 @@ def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapt
         assert node in nodes_urls
 
 
-def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: List[str]):
+def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: list[str]):
     with patch.object(varray, "primary_attributes", {"foo": "bar"}):
         # Check window slides
 
@@ -64,7 +63,7 @@ def test_array_generate_id(
             "array_adapter": server_array_adapter,
         }
     )
-    requests: List[Request] = httpx_mock.get_requests()
+    requests: list[Request] = httpx_mock.get_requests()
     for request in requests:
         if request.method == "POST":
             assert json.loads(request.content.decode())["id_"]
