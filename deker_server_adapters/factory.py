@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Any
 
 from deker.ABC.base_factory import BaseAdaptersFactory
 from deker.ctx import CTX
+from deker.tools.decorators import check_ctx_state
 from deker.uri import Uri
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -55,10 +56,12 @@ class AdaptersFactory(BaseAdaptersFactory):
         super().__init__(copied_ctx, uri)
 
     def close(self) -> None:
-        """Shutdown executor and httpx client."""
+        """Shutdown executor and httpx client; the factory's own context copy is marked closed."""
+        self.ctx.is_closed = True
         self.httpx_client.close()
         super().close()
 
+    @check_ctx_state
     def get_array_adapter(
         self,
         collection_path: Uri,
@@ -81,6 +84,7 @@ class AdaptersFactory(BaseAdaptersFactory):
             storage_adapter=storage_adapter,
         )
 
+    @check_ctx_state
     def get_varray_adapter(
         self,
         collection_path: Uri,
@@ -103,6 +107,7 @@ class AdaptersFactory(BaseAdaptersFactory):
             storage_adapter=storage_adapter,
         )
 
+    @check_ctx_state
     def get_collection_adapter(
         self,
         *args: Any,
