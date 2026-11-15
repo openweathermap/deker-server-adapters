@@ -1,5 +1,6 @@
 import json
 import re
+import warnings
 
 from unittest.mock import patch
 from urllib.parse import unquote
@@ -11,6 +12,7 @@ import pytest
 from deker import ArraySchema, AttributeSchema, DimensionSchema
 from deker.arrays import Array
 from deker.collection import Collection
+from deker.errors import DekerArrayTypeError
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
 from httpx import ReadTimeout
 from pytest_httpx import HTTPXMock
@@ -34,9 +36,10 @@ def test_create_success(
     instance_id = str(uuid4())
     httpx_mock.add_response(url=re.compile(r".*array.*"), status_code=201, json={"id": instance_id})
     data = array.as_dict
-    array = server_array_adapter.create(
-        {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
-    )
+    with pytest.warns(DeprecationWarning, match="3.0.0"):
+        array = server_array_adapter.create(
+            {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
+        )
     assert array
     assert array.id == instance_id
 
@@ -49,7 +52,7 @@ def test_create_fails_no_id(
 ):
     httpx_mock.add_response(status_code=201, url=re.compile(r".*array.*"))
     data = array.as_dict
-    with pytest.raises(DekerServerError):
+    with pytest.raises(DekerServerError), pytest.warns(DeprecationWarning, match="3.0.0"):
         server_array_adapter.create(
             {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
         )
@@ -67,7 +70,7 @@ def test_create_fails_no_id(
             "read_data",
             (np.index_exp[:]),
         ),
-        ("update", (np.index_exp[:], np.zeros(shape=(1,)))),
+        ("update", (np.index_exp[:], np.zeros(shape=(1,), dtype=np.int64))),
     ],
 )
 def test_collection_raises_500(
@@ -85,11 +88,7 @@ def test_collection_raises_500(
 
     httpx_mock.add_response(status_code=500, url=re.compile(r".*array.*"))
     with pytest.raises(DekerServerError):
-        if method == "create":
-            array = array.as_dict
-            array["id_"] = array["id"]
-        call_args = (array, *args)
-        getattr(server_array_adapter, method)(*call_args)
+        getattr(server_array_adapter, method)(array, *args)
 
 
 def test_update_meta_success(
@@ -180,7 +179,7 @@ def test_read_data_timeout_while_streaming(
 def test_update_success(
     array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None
 ):
-    data = np.zeros(shape=(1,))
+    data = np.zeros(shape=(1,), dtype=array.dtype)
     httpx_mock.add_response(url=re.compile(r".*array.*"))
     assert server_array_adapter.update(array, np.index_exp[:], data) is None
 
@@ -189,10 +188,97 @@ def test_update_deker_timeout(
     array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None
 ):
     httpx_mock.add_response(status_code=504, url=re.compile(r".*array.*"))
-    data = np.zeros(shape=(1,))
+    data = np.zeros(shape=(1,), dtype=array.dtype)
 
     with pytest.raises(DekerTimeoutServer):
         server_array_adapter.update(array, np.index_exp[:], data)
+
+
+@pytest.fixture
+def wide_array(
+    adapter_factory: AdaptersFactory,
+    collection_adapter: ServerCollectionAdapter,
+    server_array_adapter: ServerArrayAdapter,
+) -> Array:
+    """A 2x3 int32 array: enough cells to tell a full write from a partial one and a scalar from a region."""
+    schema = ArraySchema(
+        dimensions=[DimensionSchema(name="y", size=2), DimensionSchema(name="x", size=3)], dtype=np.int32
+    )
+    collection = Collection(
+        name="wide",
+        schema=schema,
+        adapter=collection_adapter,
+        factory=adapter_factory,
+        storage_adapter=HDF5StorageAdapter,
+    )
+    return Array(collection, server_array_adapter)
+
+
+UPDATE_BODY_CASES = [
+    pytest.param(np.index_exp[:], np.arange(6, dtype=np.int32).reshape(2, 3), id="ndarray-whole"),
+    pytest.param(np.index_exp[1], np.array([7, 8, 9], dtype=np.int32), id="ndarray-row"),
+    pytest.param(np.index_exp[:, 1:], np.array([[1, 2], [3, 4]], dtype=np.int32), id="ndarray-region"),
+    pytest.param(np.index_exp[:], [[1, 2, 3], [4, 5, 6]], id="list-whole"),
+    pytest.param(np.index_exp[:], [[-(2**31), 0, 2**31 - 1], [1, 2, 3]], id="list-int32-bounds"),
+    pytest.param(np.index_exp[0], (7, 8, 9), id="tuple-row"),
+    pytest.param(np.index_exp[1, 2], 42, id="int-cell"),
+    pytest.param(np.index_exp[1, 2], np.int32(42), id="numpy-scalar-cell"),
+    pytest.param(np.index_exp[:], 5, id="int-fills-whole"),
+    pytest.param(np.index_exp[0, :], 5, id="int-fills-row"),
+    pytest.param(np.index_exp[::-1, ::2], np.array([[1, 2], [3, 4]], dtype=np.int32), id="ndarray-steps"),
+]
+
+
+@pytest.mark.parametrize(("bounds", "data"), UPDATE_BODY_CASES)
+def test_update_sends_the_data_cast_to_the_array_dtype_and_shape(
+    wide_array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None, bounds, data
+):
+    """Whatever the user passes, the body is the bytes of the region in the array dtype, as the local adapter stores."""
+    httpx_mock.add_response(url=re.compile(r".*/array/.*"))
+    expected = np.broadcast_to(np.asarray(data, dtype=wide_array.dtype), wide_array[bounds].shape)
+
+    server_array_adapter.update(wide_array, bounds, data)
+
+    request = httpx_mock.get_requests()[-1]
+    assert request.method == "PUT"
+    assert request.headers["Content-Type"] == "application/octet-stream"
+    assert request.content == expected.tobytes()
+    assert np.frombuffer(request.content, dtype=wide_array.dtype).size == expected.size
+
+
+UPDATE_INVALID_CASES = [
+    pytest.param(np.index_exp[:], np.zeros((2, 3), dtype=np.float64), DekerArrayTypeError, id="wrong-ndarray-dtype"),
+    pytest.param(np.index_exp[:], np.zeros((2, 3), dtype=np.int64), DekerArrayTypeError, id="wider-int-dtype"),
+    pytest.param(np.index_exp[:], [[1.5, 2, 3], [4, 5, 6]], DekerArrayTypeError, id="list-with-float"),
+    pytest.param(np.index_exp[0, 0], 1.5, DekerArrayTypeError, id="float-into-int-cell"),
+    pytest.param(np.index_exp[0, 0], 2**31, DekerArrayTypeError, id="int-out-of-int32-range"),
+    pytest.param(np.index_exp[0], [1, 2, -(2**31) - 1], DekerArrayTypeError, id="list-out-of-int32-range"),
+    pytest.param(np.index_exp[0, 0], "7", DekerArrayTypeError, id="string"),
+    pytest.param(np.index_exp[0, 0], {"a": 1}, DekerArrayTypeError, id="dict"),
+    pytest.param(np.index_exp[:], np.zeros((3, 2), dtype=np.int32), IndexError, id="transposed-shape"),
+    pytest.param(np.index_exp[0], np.zeros((2, 3), dtype=np.int32), IndexError, id="too-many-cells"),
+    pytest.param(np.index_exp[:], [1, 2, 3], IndexError, id="list-wrong-shape"),
+]
+
+
+@pytest.mark.parametrize(("bounds", "data", "error"), UPDATE_INVALID_CASES)
+def test_update_rejects_invalid_data_before_any_request(
+    wide_array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, bounds, data, error
+):
+    """No status check and no PUT: the data is rejected before the adapter touches the network."""
+    with pytest.raises(error):
+        server_array_adapter.update(wide_array, bounds, data)
+    assert not [request for request in httpx_mock.get_requests() if request.method == "PUT"]
+
+
+def test_clear_sends_an_empty_body(
+    wide_array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None
+):
+    httpx_mock.add_response(url=re.compile(r".*/array/.*"))
+    server_array_adapter.clear(wide_array, np.index_exp[:, 1])
+    request = httpx_mock.get_requests()[-1]
+    assert request.method == "PUT"
+    assert request.content == b""
 
 
 def test_clear_success(
@@ -292,12 +378,53 @@ def test_read_data_returns_writable_array(
 
 
 def test_create_from_array_instance(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, array: Array):
-    """An Array instance is sent as is and returned as is."""
+    """An Array instance is sent as is and returned as is, without any warning."""
     httpx_mock.add_response(url=re.compile(r".*/arrays$"), status_code=201, json={"id": array.id})
-    assert server_array_adapter.create(array) is array
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert server_array_adapter.create(array) is array
     request = httpx_mock.get_requests()[-1]
     assert request.method == "POST"
     assert json.loads(request.content)["id_"] == array.id
+
+
+@pytest.mark.parametrize("status_code", [200, 400, 404, 500])
+def test_create_from_array_instance_fails_on_any_status_but_created(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, array: Array, status_code: int
+):
+    httpx_mock.add_response(url=re.compile(r".*/arrays$"), status_code=status_code, json={"id": array.id})
+    with pytest.raises(DekerServerError):
+        server_array_adapter.create(array)
+
+
+def test_create_from_dict_builds_the_array_from_the_response(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, array: Array, collection: Collection
+):
+    """The dict form lives in its own deprecated method; the id comes from the server response."""
+    instance_id = str(uuid4())
+    httpx_mock.add_response(url=re.compile(r".*/arrays$"), status_code=201, json={"id": instance_id})
+    data = array.as_dict
+    with pytest.warns(DeprecationWarning, match="3.0.0"):
+        created = server_array_adapter.create_from_dict(
+            {**data, "adapter": server_array_adapter, "collection": collection, "id_": None}
+        )
+    assert isinstance(created, Array)
+    assert created.id == instance_id
+    assert created.primary_attributes == array.primary_attributes
+    assert created.custom_attributes == array.custom_attributes
+
+
+def test_create_with_a_dict_delegates_to_create_from_dict(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, array: Array, collection: Collection
+):
+    instance_id = str(uuid4())
+    httpx_mock.add_response(url=re.compile(r".*/arrays$"), status_code=201, json={"id": instance_id})
+    data = {**array.as_dict, "adapter": server_array_adapter, "collection": collection, "id_": None}
+    with patch.object(ServerArrayAdapter, "create_from_dict", wraps=server_array_adapter.create_from_dict) as spy:
+        with pytest.warns(DeprecationWarning, match="3.0.0"):
+            created = server_array_adapter.create(data)
+    spy.assert_called_once_with(data)
+    assert created.id == instance_id
 
 
 def test_create_response_without_id(
@@ -305,7 +432,7 @@ def test_create_response_without_id(
 ):
     httpx_mock.add_response(url=re.compile(r".*/arrays$"), status_code=201, json={})
     data = array.as_dict
-    with pytest.raises(DekerServerError, match="ID field"):
+    with pytest.raises(DekerServerError, match="ID field"), pytest.warns(DeprecationWarning, match="3.0.0"):
         server_array_adapter.create(
             {**data, "adapter": server_array_adapter, "collection": collection, "id_": data["id"]}
         )

@@ -22,7 +22,7 @@ class AdaptersFactory(BaseAdaptersFactory):
 
     def __init__(self, ctx: "CTX", uri: "Uri") -> None:
         # Make base url, so all urls will be relative
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "base_url": uri.raw_url,
             "verify": True,
             "http2": False,

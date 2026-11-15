@@ -1,11 +1,12 @@
 import builtins
 
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from deker.ABC.base_adapters import BaseArrayAdapter, BaseStorageAdapter
+from deker.arrays import Array
 from deker.ctx import CTX
+from deker.uri import Uri
 
 from deker_server_adapters.base import ServerArrayAdapterMixin
 from deker_server_adapters.consts import STATUS_OK, ArrayType
@@ -14,10 +15,9 @@ from deker_server_adapters.httpx_client import HttpxClient
 
 if TYPE_CHECKING:
     from deker import Collection
-    from deker.uri import Uri
 
 
-class ServerArrayAdapter(ServerArrayAdapterMixin, BaseArrayAdapter):
+class ServerArrayAdapter(ServerArrayAdapterMixin[Array], BaseArrayAdapter[Uri]):
     """Server realization for array adapter."""
 
     client: HttpxClient
@@ -26,7 +26,7 @@ class ServerArrayAdapter(ServerArrayAdapterMixin, BaseArrayAdapter):
 
     def __init__(
         self,
-        collection_path: Union["Uri", Path],
+        collection_path: Uri,
         ctx: CTX,
         executor: ThreadPoolExecutor,
         storage_adapter: builtins.type["BaseStorageAdapter"],  # `type` is shadowed by the class attribute

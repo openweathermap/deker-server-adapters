@@ -112,7 +112,7 @@ def check_status(ctx: CTX, array: BaseArray) -> Status:
 
 def request_in_cluster(
     url: str,
-    array: BaseArray,
+    array: BaseArray | dict,
     ctx: CTX,
     should_check_status: bool = False,
     method: str = "GET",
@@ -125,7 +125,7 @@ def request_in_cluster(
     Then, if needed, checks status of file on the server to determine where to send request
 
     :param url: url which to request
-    :param array: Array instance
+    :param array: Array instance, or a dict with its id and/or primary attributes (then no status check is possible)
     :param ctx: Application context
     :param should_check_status: If we should check whether the file has been moved or not
     :param method: Http method
@@ -141,6 +141,8 @@ def request_in_cluster(
         :returns: node that currently holds the array
         """
         if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
+            if not isinstance(array, BaseArray):
+                raise TypeError(f"Status of an array can be checked by its instance only, got {type(array)}")
             status = check_status(ctx, array)
             if status == Status.MOVED:
                 return ctx.extra["hash_ring_target"].get_node(get_hash_key(array))

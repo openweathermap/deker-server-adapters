@@ -1,19 +1,21 @@
 import logging
+import warnings
 
 from collections.abc import Generator
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import numpy as np
 
 from deker import Array, Collection, VArray
-from deker.ABC.base_array import BaseArray
+from deker.ABC.base_adapters import IArrayAdapter
 from deker.ctx import CTX
 from deker.tools.array import get_id
 from deker.tools.time import convert_datetime_attrs_to_iso
-from deker.types import ArrayMeta, Numeric, Slice
+from deker.types import ArrayMeta, Data, Numeric, Slice
+from deker.types.private.typings import ArrayT
 from deker.uri import Uri
-from deker_tools.slices import slice_converter
+from deker_tools.slices import slices_to_str
 from httpx import Response, TimeoutException
 from numpy import ndarray
 
@@ -70,7 +72,7 @@ class BaseServerAdapterMixin:
     @property
     def nodes(self) -> list[Node]:
         """Return list of nodes."""
-        config: ClusterConfig = self.ctx.extra.get("cluster_config")
+        config: ClusterConfig | None = self.ctx.extra.get("cluster_config")
         if not config:
             host, port = self.ctx.uri.netloc.split(":")
             return [Node(host=host, port=port, protocol=self.ctx.uri.scheme)]
@@ -82,11 +84,13 @@ class BaseServerAdapterMixin:
         return [node.url.raw_url for node in self.nodes]
 
 
-class ServerArrayAdapterMixin(BaseServerAdapterMixin):
-    """Mixin with server logic for adapters."""
+class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]):
+    """Mixin with server logic for adapters.
+
+    ``ArrayT`` is the kind of arrays the adapter manages: ``Array`` or ``VArray``.
+    """
 
     type: ArrayType
-    collection_path: Uri
 
     def __merge_node_and_collection_path(self, node: str) -> str:
         """Create new url from collection_path path and node host.
@@ -106,28 +110,14 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """Strip slash on collection path."""
         return self.collection_path.path.rstrip("/")
 
-    def create(self, array: Union[dict, "BaseArray"]) -> BaseArray:
-        """Create array on server.
+    def __post_array(self, array: ArrayT | dict, kwargs: dict[str, Any]) -> Response:
+        """Send the request creating an array and check that it was created.
 
-        :param array: Array instance or dict
-        :returns: created Array or VArray instance
+        :param array: Array/VArray instance or its description, used to pick the node in cluster mode
+        :param kwargs: json body of the request
+        :returns: the server response
+        :raises DekerServerError: if the server answered anything but 201
         """
-        if isinstance(array, dict):
-            primary_attributes = array["primary_attributes"]
-            custom_attributes = array["custom_attributes"]
-            id_ = array.get("id_") or (self.client.cluster_mode and get_id() or None)
-            array["id_"] = id_
-        else:
-            primary_attributes = array.primary_attributes
-            custom_attributes = array.custom_attributes
-            id_ = array.id
-
-        kwargs = {
-            "primary_attributes": convert_datetime_attrs_to_iso(primary_attributes),
-            "custom_attributes": convert_datetime_attrs_to_iso(custom_attributes),
-            "id_": id_,
-        }
-
         request_kwargs: dict[str, Any] = {"json": kwargs}
         url = f"{self.path_stripped}/{self.type.name}s"
         if self.type == ArrayType.array and self.client.cluster_mode:
@@ -136,33 +126,82 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             response = self.client.post(f"{self.collection_host}{url}", **request_kwargs)
 
         if not response or response.status_code != STATUS_CREATED:
-            raise DekerServerError(response, "Couldn't create an array")
+            raise DekerServerError(response, f"Couldn't create the {self.type.name}")
+        return response
+
+    def create(self, array: ArrayT | dict) -> ArrayT:
+        """Create array on server.
+
+        :param array: Array/VArray instance; a dict is accepted for backward compatibility only,
+            see ``create_from_dict``
+        :returns: the same instance, once it is created on the server
+        :raises DekerServerError: if the server answered anything but 201
+        """
+        if isinstance(array, dict):
+            return self.create_from_dict(array)
+
+        kwargs = {
+            "primary_attributes": convert_datetime_attrs_to_iso(array.primary_attributes),
+            "custom_attributes": convert_datetime_attrs_to_iso(array.custom_attributes),
+            "id_": array.id,
+        }
+        self.__post_array(array, kwargs)
+        return array
+
+    # TODO: remove in 3.0.0 together with the dict branch of ``create``
+    def create_from_dict(self, data: dict) -> ArrayT:
+        """Create array on server from its description and build the instance from the server response.
+
+        .. deprecated:: 2.0.0
+           Deker creates arrays from instances only; this method will be removed in 3.0.0.
+
+        :param data: dict with ``primary_attributes``, ``custom_attributes``, ``collection``, ``adapter``,
+            ``array_adapter`` for a VArray, and an optional ``id_``; without an id the server assigns one
+            (in cluster mode the id is generated by the client, as the node is picked by it)
+        :returns: Array/VArray built from the description and the id in the server response
+        :raises DekerServerError: if the server answered anything but 201 or the response has no id
+        """
+        warnings.warn(
+            "Creating arrays from a dict is deprecated and will be removed in 3.0.0; "
+            "pass an Array or VArray instance to create instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        primary_attributes = data["primary_attributes"]
+        custom_attributes = data["custom_attributes"]
+        id_ = data.get("id_") or (self.client.cluster_mode and get_id() or None)
+        data["id_"] = id_
+
+        kwargs = {
+            "primary_attributes": convert_datetime_attrs_to_iso(primary_attributes),
+            "custom_attributes": convert_datetime_attrs_to_iso(custom_attributes),
+            "id_": id_,
+        }
+        response = self.__post_array(data, kwargs)
 
         try:
-            data = response.json()
+            body = response.json()
         except JSONDecodeError:
             raise DekerServerError(response, "Couldn't parse json")
 
-        if isinstance(array, dict):
-            instance_id = data.get("id")
-            if not instance_id:
-                raise DekerServerError(response, "Server response doesn't contain ID field")
+        instance_id = body.get("id")
+        if not instance_id:
+            raise DekerServerError(response, "Server response doesn't contain ID field")
 
-            kwargs = {
-                "collection": array["collection"],
-                "adapter": array["adapter"],
-                "id_": instance_id,
-                "primary_attributes": array["primary_attributes"],
-                "custom_attributes": array["custom_attributes"],
-            }
+        kwargs = {
+            "collection": data["collection"],
+            "adapter": data["adapter"],
+            "id_": instance_id,
+            "primary_attributes": data["primary_attributes"],
+            "custom_attributes": data["custom_attributes"],
+        }
 
-            model = self.type.value
-            if model == VArray:
-                kwargs["array_adapter"] = array["array_adapter"]
-            return model(**kwargs)
-        return array
+        model = self.type.value
+        if model == VArray:
+            kwargs["array_adapter"] = data["array_adapter"]
+        return cast("ArrayT", model(**kwargs))
 
-    def read_meta(self, array: "BaseArray") -> ArrayMeta:
+    def read_meta(self, array: ArrayT) -> ArrayMeta:
         """Read metadata of (v)array.
 
         :param array: Instance of (v)array
@@ -185,7 +224,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
     def update_meta_custom_attributes(
         self,
-        array: "BaseArray",
+        array: ArrayT,
         attributes: dict,
     ) -> None:
         """Update custom attributes of (v)array.
@@ -206,7 +245,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         if not response or response.status_code != STATUS_OK:
             raise DekerServerError(response, "Couldn't update attributes")
 
-    def delete(self, array: "BaseArray") -> None:
+    def delete(self, array: ArrayT) -> None:
         """Delete array on server.
 
         :param array: Array/Varray to be deleted
@@ -242,16 +281,16 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
 
     def read_data(
         self,
-        array: "BaseArray",
+        array: ArrayT,
         bounds: Slice,
-    ) -> Numeric | ndarray | None:
+    ) -> Numeric | ndarray:
         """Read data from array/varray.
 
         :param array: From what array we read
         :param bounds: What part of array we read
         :return:
         """
-        bounds_ = slice_converter[bounds]
+        bounds_ = slices_to_str(bounds)
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data"
         headers = {"Accept": "application/octet-stream"}
         try:
@@ -288,20 +327,16 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
             return result[()]
         return result
 
-    def update(self, array: "BaseArray", bounds: Slice, data: Numeric) -> None:
-        """Update array/varray on server.
+    def __put_data(self, array: ArrayT, bounds: Slice, body: bytes) -> None:
+        """Send the bytes of a region of the array to the server.
 
         :param array: Array/Varray that will be updated
         :param bounds: Part of the array to update
-        :param data: Data that will replace current values
+        :param body: raw bytes of the region in the array dtype; empty bytes clear the region
         """
-        bounds = slice_converter[bounds]
-        url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds}/data"
-        request_kwargs: dict[str, Any] = {"headers": {"Content-Type": "application/octet-stream"}}
-        if hasattr(data, "tobytes"):
-            request_kwargs["data"] = data.tobytes()
-        else:
-            request_kwargs["data"] = bytes(data)
+        bounds_ = slices_to_str(bounds)
+        url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data"
+        request_kwargs: dict[str, Any] = {"headers": {"Content-Type": "application/octet-stream"}, "data": body}
         # We write (v)array through the node it belongs in cluster
         try:
             if self.client.cluster_mode:
@@ -323,15 +358,31 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
                 message=f"Timeout on {self.type.name} update {array}",
             )
 
-    def clear(self, array: "BaseArray", bounds: Slice) -> None:
+    def update(self, array: ArrayT, bounds: Slice, data: Data) -> None:
+        """Update array/varray on server.
+
+        The data is validated and cast to the array dtype and the shape of the region before it is sent,
+        the same way the local adapter stores it: a scalar fills the whole region.
+
+        :param array: Array/Varray that will be updated
+        :param bounds: Part of the array to update
+        :param data: Data that will replace current values
+        :raises DekerArrayTypeError: if the data cannot be cast to the array dtype without loss
+        :raises IndexError: if the data shape does not match the region
+        """
+        processed = self._process_data(array.dtype, array.shape, data, bounds)
+        region = np.broadcast_to(processed, array[bounds].shape)
+        self.__put_data(array, bounds, region.tobytes())
+
+    def clear(self, array: ArrayT, bounds: Slice) -> None:
         """Clear array/varray.
 
         :param array: Instance of array/varray
         :param bounds: Part of the array/varray that will be cleared
         """
-        return self.update(array, bounds, [])
+        self.__put_data(array, bounds, b"")
 
-    def is_deleted(self, array: "BaseArray") -> bool:
+    def is_deleted(self, array: ArrayT) -> bool:
         """Check if array/varray was deleted on server.
 
         :param array: Instance of array/varray
@@ -339,7 +390,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         """
         return False
 
-    def __create_array_from_response(self, response: Response, kwargs: dict) -> BaseArray | None:
+    def __create_array_from_response(self, response: Response, kwargs: dict) -> ArrayT | None:
         """Create array from json meta.
 
         :param response: response from server
@@ -349,7 +400,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         if response.status_code == NOT_FOUND:  # pragma: no cover  # guard: callers return None on 404 themselves
             return None
         if response.status_code == STATUS_OK:
-            return create_array_from_meta(**{**kwargs, "meta": response.json()})
+            return cast("ArrayT", create_array_from_meta(**{**kwargs, "meta": response.json()}))
 
         raise DekerServerError(response, "Couldn't fetch an array")  # pragma: no cover  # guard: callers raise first
 
@@ -360,7 +411,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> Optional["BaseArray"]:
+    ) -> ArrayT | None:
         """Get array by given primary attribute.
 
         :param primary_attributes: Key attributes
@@ -371,11 +422,8 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         :returns: matching Array or VArray, or ``None`` if nothing was found
         """
         attrs = []
-        primary_attributes = convert_datetime_attrs_to_iso(primary_attributes)
-        for attr in schema.attributes:
-            if not attr.primary:
-                continue
-
+        primary_attributes = convert_datetime_attrs_to_iso(primary_attributes) or {}
+        for attr in schema.primary_attributes or ():
             if attr.dtype == tuple:
                 attrs.append(str(tuple(primary_attributes[attr.name])))
             else:
@@ -411,7 +459,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin):
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> Optional["BaseArray"]:
+    ) -> ArrayT | None:
         """Get and array/varray by given ID.
 
         :param id_: ID of array/varray

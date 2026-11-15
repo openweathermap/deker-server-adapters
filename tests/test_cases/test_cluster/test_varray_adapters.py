@@ -55,14 +55,15 @@ def test_array_generate_id(
     httpx_mock.add_response(method="POST", json=varray.as_dict, status_code=201)
     data = varray.as_dict
     data.update({"id": None, "id_": None, "primary_attributes": None})
-    server_varray_adapter.create(
-        {
-            **data,
-            "adapter": server_varray_adapter,
-            "collection": varray_collection,
-            "array_adapter": server_array_adapter,
-        }
-    )
+    with pytest.warns(DeprecationWarning, match="3.0.0"):
+        server_varray_adapter.create_from_dict(
+            {
+                **data,
+                "adapter": server_varray_adapter,
+                "collection": varray_collection,
+                "array_adapter": server_array_adapter,
+            }
+        )
     requests: list[Request] = httpx_mock.get_requests()
     for request in requests:
         if request.method == "POST":

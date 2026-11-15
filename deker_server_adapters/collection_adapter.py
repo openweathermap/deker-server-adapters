@@ -14,7 +14,7 @@ from deker_server_adapters.utils.requests import make_request
 from deker_server_adapters.utils.version import get_api_version
 
 
-class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter):
+class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]):
     """Server realization for collection adapter."""
 
     client: HttpxClient
