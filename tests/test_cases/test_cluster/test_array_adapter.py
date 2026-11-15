@@ -2,6 +2,7 @@ import json
 import re
 
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import httpx
 import numpy as np
@@ -75,7 +76,7 @@ def test_iter_success(
 
 def test_filter_by_id_is_not_allowed(collection_with_primary_attributes):
     with pytest.raises(FilteringByIdInClusterIsForbidden):
-        collection_with_primary_attributes.filter({"id": "foo"}).last()
+        collection_with_primary_attributes.filter({"id": str(uuid4())}).last()
 
 
 def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mocked_ping, array, status: str):

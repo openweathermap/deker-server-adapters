@@ -3,6 +3,7 @@ import re
 
 from typing import TYPE_CHECKING
 from unittest.mock import patch
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -82,7 +83,7 @@ def test_read_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_
 
 def test_filter_by_id_is_not_allowed(varray_collection_with_primary_attributes):
     with pytest.raises(FilteringByIdInClusterIsForbidden):
-        varray_collection_with_primary_attributes.filter({"id": "foo"}).last()
+        varray_collection_with_primary_attributes.filter({"id": str(uuid4())}).last()
 
 
 def test_hash_updated(httpx_mock: HTTPXMock, server_varray_adapter: ServerArrayAdapter, mocked_ping, varray):
