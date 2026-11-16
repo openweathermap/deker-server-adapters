@@ -691,7 +691,6 @@ provides-extras = ["all", "server-adapters", "shell", "xarray"]
 dev = [
     { name = "bandit", specifier = ">=1.9.4" },
     { name = "coverage", specifier = ">=7.16.2" },
-    { name = "deepdiff", specifier = ">=9.1.0" },
     { name = "mypy", specifier = ">=2.4.0" },
     { name = "mypy-extensions", specifier = ">=1.1.0" },
     { name = "pre-commit", specifier = ">=4.6.2" },
@@ -701,6 +700,7 @@ dev = [
     { name = "pytest-mock", specifier = ">=3.17.0" },
     { name = "pytest-random-order", specifier = ">=1.2.0" },
     { name = "pytest-sugar", specifier = ">=1.1.1" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "pyupgrade", specifier = ">=3.19.0" },
     { name = "ruff", specifier = ">=0.17.2" },
     { name = "ssort", specifier = ">=0.17.0" },
@@ -739,7 +739,6 @@ requires-dist = [
 dev = [
     { name = "bandit", specifier = ">=1.9.4" },
     { name = "coverage", specifier = ">=7.16.2" },
-    { name = "deepdiff", specifier = ">=9.1.0" },
     { name = "deker", editable = "../deker" },
     { name = "mypy", specifier = ">=2.4.0" },
     { name = "mypy-extensions", specifier = ">=1.1.0" },
@@ -750,6 +749,7 @@ dev = [
     { name = "pytest-mock", specifier = ">=3.17.0" },
     { name = "pytest-random-order", specifier = ">=1.2.0" },
     { name = "pytest-sugar", specifier = ">=1.1.1" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "pyupgrade", specifier = ">=3.19.0" },
     { name = "ruff", specifier = ">=0.17.2" },
     { name = "ssort", specifier = ">=0.17.0" },
@@ -847,7 +847,6 @@ requires-dist = [{ name = "numpy", specifier = ">=1.26,<3" }]
 dev = [
     { name = "bandit", specifier = ">=1.9.4" },
     { name = "coverage", specifier = ">=7.16.2" },
-    { name = "deepdiff", specifier = ">=9.1.0" },
     { name = "mypy", specifier = ">=2.4.0" },
     { name = "mypy-extensions", specifier = ">=1.1.0" },
     { name = "pre-commit", specifier = ">=4.6.2" },
