@@ -32,6 +32,7 @@ def rate_limit_err(response: Response, message: str, class_: type[DekerBaseRateL
     :param response: HttpxResponse object
     :param message: Message of the exception
     :param class_: Class (Type) of the exception
+    :raises DekerBaseRateLimitError: always, the given class with the limits from the ``RateLimit-*`` headers
     """
     limit = response.headers.get("RateLimit-Limit")
     remaining = response.headers.get("RateLimit-Remaining")
@@ -46,20 +47,24 @@ def rate_limit_err(response: Response, message: str, class_: type[DekerBaseRateL
 
 
 class HttpxClient(Client):
-    """Wrapper around HttpxClient."""
+    """The http client of the adapters: an ``httpx.Client`` that follows the cluster and translates its errors.
+
+    A response saying the cluster config changed is applied and the request repeated; a write sent to a
+    non-leader node is repeated on the leader; the rate limit answers become Deker errors.
+    """
 
     ctx: CTX
     cluster_mode: bool = False
 
     def _send(self, *args: Any, stream: bool, **kwargs: Any) -> Response:
-        """Send a request, leaving the body of a successful response unread when ``stream`` is set.
+        r"""Send a request, leaving the body of a successful response unread when ``stream`` is set.
 
         Any other response is read in full at once, so error handling and node fallback
         never meet an unread body.
 
-        :param *args: arguments to request
+        :param \*args: arguments to request
         :param stream: do not read the body of a ``200`` response
-        :param **kwargs: keyword arguments to request
+        :param \**kwargs: keyword arguments to request
         :returns: server response
         """
         if not stream:
@@ -70,13 +75,16 @@ class HttpxClient(Client):
         return response
 
     def request(self, *args: Any, retry_on_hash_failure: bool = False, stream: bool = False, **kwargs: Any) -> Response:
-        """Override httpx method to handle rate errors.
+        r"""Override httpx method to handle rate errors.
 
-        :param *args: arguments to request
+        :param \*args: arguments to request
         :param retry_on_hash_failure: If we should retry on invalid hash
         :param stream: leave the body of a successful response unread, to be consumed by the caller
-        :param **kwargs: keyword arguments to request
+        :param \**kwargs: keyword arguments to request
         :returns: server response
+        :raises InvalidConfigHash: if the cluster config changed and the request is not to be retried
+        :raises DekerRateLimitError: if the server answered 429
+        :raises DekerDataPointsLimitError: if the server refused the request as too large
         """
         response = self._send(*args, stream=stream, **kwargs)
         if response.status_code == CONFLICT_HASH:

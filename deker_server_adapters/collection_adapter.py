@@ -15,19 +15,19 @@ from deker_server_adapters.utils.version import get_api_version
 
 
 class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]):
-    """Server realization for collection adapter."""
+    """Adapter of the collections of a DEKER™ server: every operation is a request to its API."""
 
     client: HttpxClient
     metadata_version = "0.2"
 
     @property
     def collection_url_prefix(self) -> str:
-        """Return prefix to collection."""
+        """Return the path prefix of one collection in the API, with the API version."""
         return f"{get_api_version()}/collection"
 
     @property
     def collections_url_prefix(self) -> str:
-        """Return prefix to collections."""
+        """Return the path prefix of the collections list in the API, with the API version."""
         return f"{get_api_version()}/collections"
 
     @check_ctx_state
@@ -35,6 +35,8 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         """Delete collection from server.
 
         :param collection: Deker's collection instance
+        :raises DekerCollectionNotExistsError: if the server answered 404
+        :raises DekerServerError: if the server answered anything else but 200
         """
         response = self.client.delete(
             f"/{self.collection_url_prefix}/{collection.name}",
@@ -50,9 +52,11 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
 
     @check_ctx_state
     def create(self, collection: "Collection") -> None:
-        """Create collection.
+        """Create collection on the server.
 
         :param collection: Deker's collection instance
+        :raises DekerCollectionAlreadyExistsError: if the server rejected the name as taken
+        :raises DekerServerError: if the server answered anything else but 201
         """
         data = collection.as_dict
         response = self.client.post(f"/{self.collections_url_prefix}", json=data)
@@ -70,6 +74,8 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
 
         :param name: Name of collection
         :returns: collection metadata as a dict
+        :raises DekerCollectionNotExistsError: if the server answered 404
+        :raises DekerServerError: if the server answered anything else but 200
         """
         url = f"{self.collection_url_prefix}/{name}"
         if self.client.cluster_mode:
@@ -87,10 +93,11 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
 
     @check_ctx_state
     def clear(self, collection: "Collection") -> None:
-        """Clear collection.
+        """Remove every array of the collection on the server.
 
         :param collection: Instance of Deker's collection
-        :return:
+        :raises DekerCollectionNotExistsError: if the server answered 404
+        :raises DekerServerError: if the server answered anything else but 200
         """
         array_type = "varrays" if collection.varray_schema else "arrays"
         response = self.client.put(
@@ -111,20 +118,25 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
 
     @property
     def collections_resource(self) -> Uri:
-        """Full path with to collections resource."""
+        """Get the uri of the collections resource of the server."""
         return Uri.create(str(self.client.base_url)) / self.collection_url_prefix
 
     @check_ctx_state
     def is_deleted(self, collection: Collection) -> bool:
-        """Check if collection is deleted.
+        """Check if collection is deleted: not checked, the server answers 404 to a deleted collection.
 
         :param collection: Collection instance
-        :return:
+        :returns: always ``False``
         """
         return False
 
     @check_ctx_state
     def __iter__(self) -> Generator[dict, None, None]:
+        """Iterate over the metadata of the collections of the server.
+
+        :yields: the metadata of every collection
+        :raises DekerServerError: if the server answered anything but 200
+        """
         nodes = [node.url.raw_url for node in self.nodes] if self.client.cluster_mode else [str(self.client.base_url)]
         all_collections_response = make_request(url=self.collections_url_prefix, nodes=nodes, client=self.client)
         if all_collections_response is None or all_collections_response.status_code != STATUS_OK:

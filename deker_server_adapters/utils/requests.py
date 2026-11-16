@@ -28,7 +28,7 @@ def _request(
     retry_on_hash_failure: bool = False,
     stream: bool = False,
 ) -> Response | None:
-    """Internal request func - Make GET request on given node.
+    """Send one request to the given node; a node that fails is logged and answers ``None``.
 
     :param url: What we request
     :param retry_on_hash_failure: If we should retry on invalid hash
@@ -38,6 +38,7 @@ def _request(
     :param request_kwargs: Kwargs for request
     :param stream: leave the body of a successful response unread
     :returns: response, or ``None`` if the node did not answer
+    :raises InvalidConfigHash: if the cluster config changed and the request is not to be retried
     """
     response = None
     request_url = f"{node.rstrip('/')}/{url.lstrip('/')}"
@@ -63,7 +64,7 @@ def make_request(
     retry_on_hash_failure: bool = False,
     stream: bool = False,
 ) -> Response | None:
-    """Make GET request on random node, while response is not received.
+    """Send the request to the nodes in random order until one answers with 200; a single node is asked once.
 
     :param retry_on_hash_failure: If we should retry on invalid hash
     :param method: HTTP Method
@@ -110,6 +111,25 @@ def check_status(ctx: CTX, array: BaseArray) -> Status:
     return Status(response.text.replace('"', ""))
 
 
+def _node_holding_array(array: BaseArray | dict, ctx: CTX, should_check_status: bool, initial_node: "Node") -> "Node":
+    """Get the node that holds the array now: while the cluster is rebalancing, a moved array is on the target ring.
+
+    :param array: Array instance, or a dict with its id and/or primary attributes
+    :param ctx: Application context
+    :param should_check_status: whether to ask the server where the array is during a rebalancing
+    :param initial_node: Node to return if there are no updates.
+    :returns: node that currently holds the array
+    :raises TypeError: if the status check is asked for a dict instead of an array instance
+    """
+    if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
+        if not isinstance(array, BaseArray):
+            raise TypeError(f"Status of an array can be checked by its instance only, got {type(array)}")
+        status = check_status(ctx, array)
+        if status == Status.MOVED:
+            return ctx.extra["hash_ring_target"].get_node(get_hash_key(array))
+    return initial_node
+
+
 def request_in_cluster(
     url: str,
     array: BaseArray | dict,
@@ -119,10 +139,12 @@ def request_in_cluster(
     request_kwargs: dict | None = None,
     stream: bool = False,
 ) -> Response | None:
-    """Make request in cluster.
+    """Send a request to the node of the cluster responsible for the array.
 
-    Before sending request, it retrieves a fresh config from the server.
-    Then, if needed, checks status of file on the server to determine where to send request
+    The node is picked by the hash ring; while the cluster is rebalancing and the status check is asked, the
+    status of the array decides between the current and the target ring. If the server reports that the
+    cluster config changed, the client applies the new config and the request is sent once more to the node
+    picked afresh.
 
     :param url: url which to request
     :param array: Array instance, or a dict with its id and/or primary attributes (then no status check is possible)
@@ -132,37 +154,20 @@ def request_in_cluster(
     :param request_kwargs: Extra data for request
     :param stream: leave the body of a successful response unread
     :returns: response from the node responsible for the array, or ``None`` if it did not answer
+    :raises TypeError: if the status check is asked for a dict instead of an array instance
+    :raises DekerServerError: if the status check failed
     """
-
-    def _check_status(initial_node: "Node") -> "Node":
-        """Closure for getting status of config file on the server and retrieving correct node for request.
-
-        :param initial_node: Node to return if there are no updates.
-        :returns: node that currently holds the array
-        """
-        if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
-            if not isinstance(array, BaseArray):
-                raise TypeError(f"Status of an array can be checked by its instance only, got {type(array)}")
-            status = check_status(ctx, array)
-            if status == Status.MOVED:
-                return ctx.extra["hash_ring_target"].get_node(get_hash_key(array))
-        return initial_node
-
-    # Retrieve fresh config
     client = ctx.extra["httpx_client"]
 
     base_node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
 
-    target_node = _check_status(base_node)
-    # Acquire locks
-    # TODO: Lock acquiring logic if needed
-    # Make request
+    target_node = _node_holding_array(array, ctx, should_check_status, base_node)
     try:
         return make_request(
             url, [target_node.url.raw_url], client, method=method, request_kwargs=request_kwargs, stream=stream
         )
     except InvalidConfigHash:
-        updated_node = _check_status(target_node)
+        updated_node = _node_holding_array(array, ctx, should_check_status, target_node)
         return make_request(
             url, [updated_node.url.raw_url], client, method=method, request_kwargs=request_kwargs, stream=stream
         )

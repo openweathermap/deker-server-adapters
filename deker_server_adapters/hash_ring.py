@@ -16,15 +16,26 @@ class HashRing(Generic[NodeT]):
     """Consistent hash ring over nodes of any type with a stable ``str()`` representation."""
 
     def _hash_val(self, b_key: list[int], entry_fn: Callable) -> int:
+        """Build a 32-bit integer from four bytes of a digest.
+
+        :param b_key: bytes of the digest
+        :param entry_fn: maps the byte number 0-3 to its index in the digest
+        :returns: the integer
+        """
         return (b_key[entry_fn(3)] << 24) | (b_key[entry_fn(2)] << 16) | (b_key[entry_fn(1)] << 8) | b_key[entry_fn(0)]
 
     def _hash_digest(self, key: str) -> list[int]:
+        """Get the md5 digest of a key as a list of bytes.
+
+        :param key: the key
+        :returns: 16 bytes
+        """
         m = md5_constructor()
         m.update(key.encode())
         return list(m.digest())
 
     def _generate_circle(self) -> None:
-        """Generate the circle."""
+        """Place the nodes on the ring: 40 points per node times its share of the weights, 3 keys per point."""
         total_weight = 0
         for node in self.nodes:
             total_weight += self.weights.get(node, 1)
@@ -59,11 +70,11 @@ class HashRing(Generic[NodeT]):
         self._generate_circle()
 
     def get_node(self, string_key: str) -> NodeT:
-        """Return hash ring by given a string key a corresponding node.
+        """Return the node responsible for a key.
 
-        If the hash ring is empty, `None` is returned.
         :param string_key: String key
         :returns: node responsible for the key
+        :raises HashRingError: if the ring is empty
         """
         pos = self.get_node_pos(string_key)
         if pos is None:
@@ -72,11 +83,8 @@ class HashRing(Generic[NodeT]):
         return self.ring[self._sorted_keys[pos]]
 
     def get_node_pos(self, string_key: str) -> int | None:
-        """Return node and position.
+        """Return the position in the ring of the node responsible for a key.
 
-        Given a string key a corresponding node in the hash ring
-        is returned along with it's position in the ring.
-        If the hash ring is empty, (`None`, `None`) is returned.
         :param string_key: String key
         :returns: position of the node in the ring, or ``None`` if the ring is empty
         """
@@ -95,8 +103,9 @@ class HashRing(Generic[NodeT]):
     def gen_key(self, key: str) -> int:
         """Given a string key it returns a long value.
 
-        this long value represents a place on the hash ring.
+        This long value represents a place on the hash ring.
         md5 is currently used because it mixes well.
+
         :param key: a string key
         :returns: integer position of the key on the hash ring
         """

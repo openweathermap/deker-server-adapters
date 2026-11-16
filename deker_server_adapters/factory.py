@@ -16,11 +16,19 @@ if TYPE_CHECKING:
 
 
 class AdaptersFactory(BaseAdaptersFactory):
-    """Factory that produces server adapters."""
+    """Factory that produces server adapters: the ``http://`` and ``https://`` schemes."""
 
     uri_schemes = ("http", "https")
 
     def __init__(self, ctx: "CTX", uri: "Uri") -> None:
+        """AdaptersFactory constructor: builds the http client, pings the server and applies its cluster config.
+
+        The http client takes the credentials of the uri and the ``httpx_conf`` keyword arguments of the client.
+
+        :param ctx: context of the client; the factory works with a copy of it, so every factory has its own client
+        :param uri: uri of the server
+        :raises DekerServerError: if the server did not answer the ping
+        """
         # Make base url, so all urls will be relative
         kwargs: dict[str, Any] = {
             "base_url": uri.raw_url,
@@ -69,12 +77,12 @@ class AdaptersFactory(BaseAdaptersFactory):
         *args: Any,
         **kwargs: Any,
     ) -> "BaseArrayAdapter":
-        """Make server array adapter.
+        r"""Make server array adapter.
 
         :param storage_adapter: Type of storage adapter
         :param collection_path: URI of collection
-        :param *args: Won't be passed further
-        :param **kwargs: Won't be passed further
+        :param \*args: Won't be passed further
+        :param \**kwargs: Won't be passed further
         :returns: ServerArrayAdapter instance
         """
         return ServerArrayAdapter(
@@ -92,12 +100,12 @@ class AdaptersFactory(BaseAdaptersFactory):
         *args: Any,
         **kwargs: Any,
     ) -> "BaseVArrayAdapter":
-        """Make server varray adapter.
+        r"""Make server varray adapter.
 
         :param storage_adapter: Type of storage adapter
         :param collection_path: URI of collection
-        :param *args: Won't be passed further
-        :param **kwargs: Won't be passed further
+        :param \*args: Won't be passed further
+        :param \**kwargs: Won't be passed further
         :returns: ServerVarrayAdapter instance
         """
         return ServerVarrayAdapter(
@@ -113,10 +121,10 @@ class AdaptersFactory(BaseAdaptersFactory):
         *args: Any,
         **kwargs: Any,
     ) -> "BaseCollectionAdapter":
-        """Make server collection adapter.
+        r"""Make server collection adapter.
 
-        :param *args: Won't be passed further
-        :param **kwargs: Won't be passed further
+        :param \*args: Won't be passed further
+        :param \**kwargs: Won't be passed further
         :returns: ServerCollectionAdapter instance
         """
         return ServerCollectionAdapter(self.ctx)

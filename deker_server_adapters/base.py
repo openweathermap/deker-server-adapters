@@ -38,11 +38,11 @@ def create_array_from_meta(
     *args: Any,
     **kwargs: Any,
 ) -> Array | VArray:
-    """Override class method.
+    r"""Build an Array or a VArray from its metadata, by the kind.
 
-    :param type: Type of Array
-    :param *args: Create array meta params
-    :param **kwargs: Create array meta kwargs
+    :param type: kind of the array
+    :param \*args: arguments of ``_create_from_meta``
+    :param \**kwargs: keyword arguments of ``_create_from_meta``
     :returns: Array or VArray built from its meta
     """
     class_ = type.value
@@ -50,19 +50,22 @@ def create_array_from_meta(
 
 
 class BaseServerAdapterMixin:
-    """Mixin for network communication."""
+    """Mixin for network communication: the http client, the hash ring and the nodes shared through the context."""
 
     ctx: CTX
 
     @property
     def client(self) -> HttpxClient:
-        """Return client singleton."""
+        """Return the http client shared by the adapters of the context."""
         # We don't need to worry about passing args here, cause it's a singleton.
         return self.ctx.extra["httpx_client"]
 
     @property
     def hash_ring(self) -> HashRing[Node]:
-        """Return HashRing instance."""
+        """Return the hash ring of the cluster.
+
+        :raises AttributeError: in the single server mode, which has no ring
+        """
         hash_ring = self.ctx.extra.get("hash_ring")
         if not hash_ring:
             msg = "Attempt to use cluster logic in single server mode"
@@ -71,7 +74,7 @@ class BaseServerAdapterMixin:
 
     @property
     def nodes(self) -> list[Node]:
-        """Return list of nodes."""
+        """Return the nodes of the cluster, or the single server as the only node."""
         config: ClusterConfig | None = self.ctx.extra.get("cluster_config")
         if not config:
             host, port = self.ctx.uri.netloc.split(":")
@@ -102,12 +105,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
 
     @property
     def collection_host(self) -> str:
-        """Merge scheme with it's path."""
+        """Get the scheme and the host of the collection uri: ``http://host:port``."""
         return f"{self.collection_path.scheme}{Uri.__annotations__['netloc']['separator']}{self.collection_path.netloc}"
 
     @property
     def path_stripped(self) -> str:
-        """Strip slash on collection path."""
+        """Get the path of the collection uri without the trailing slash."""
         return self.collection_path.path.rstrip("/")
 
     def __post_array(self, array: ArrayT | dict, kwargs: dict[str, Any]) -> Response:
@@ -202,10 +205,11 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         return cast("ArrayT", model(**kwargs))
 
     def read_meta(self, array: ArrayT) -> ArrayMeta:
-        """Read metadata of (v)array.
+        """Read metadata of (v)array from the server.
 
         :param array: Instance of (v)array
-        :return:
+        :returns: the metadata
+        :raises DekerServerError: if the server answered anything but 200
         """
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}"
 
@@ -227,10 +231,11 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         array: ArrayT,
         attributes: dict,
     ) -> None:
-        """Update custom attributes of (v)array.
+        """Update custom attributes of (v)array on the server.
 
         :param array: Instance of (v)array
         :param attributes: dict with attributes to update
+        :raises DekerServerError: if the server answered anything but 200
         """
         # Writing is always on leader node for non array
 
@@ -249,6 +254,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         """Delete array on server.
 
         :param array: Array/Varray to be deleted
+        :raises DekerServerError: if the server answered anything but 200
         """
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}"
 
@@ -284,11 +290,13 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         array: ArrayT,
         bounds: Slice,
     ) -> Numeric | ndarray:
-        """Read data from array/varray.
+        """Read data from array/varray, streaming the response into an array of the shape of the bounds.
 
         :param array: From what array we read
         :param bounds: What part of array we read
-        :return:
+        :returns: data within the bounds; a scalar for a single cell
+        :raises DekerServerError: if the server answered anything but 200, or sent a body of another size
+        :raises DekerTimeoutServer: if the request or the server timed out
         """
         bounds_ = slices_to_str(bounds)
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data"
@@ -333,6 +341,8 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         :param array: Array/Varray that will be updated
         :param bounds: Part of the array to update
         :param body: raw bytes of the region in the array dtype; empty bytes clear the region
+        :raises DekerServerError: if the server answered anything but 200
+        :raises DekerTimeoutServer: if the request or the server timed out
         """
         bounds_ = slices_to_str(bounds)
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data"
@@ -375,18 +385,20 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         self.__put_data(array, bounds, region.tobytes())
 
     def clear(self, array: ArrayT, bounds: Slice) -> None:
-        """Clear array/varray.
+        """Clear a region of the array/varray on the server: an empty body is sent for it.
 
         :param array: Instance of array/varray
         :param bounds: Part of the array/varray that will be cleared
+        :raises DekerServerError: if the server answered anything but 200
+        :raises DekerTimeoutServer: if the request or the server timed out
         """
         self.__put_data(array, bounds, b"")
 
     def is_deleted(self, array: ArrayT) -> bool:
-        """Check if array/varray was deleted on server.
+        """Check if array/varray was deleted on server: not checked, the server answers 404 to a deleted array.
 
         :param array: Instance of array/varray
-        :returns: ``True`` if the array no longer exists on the server
+        :returns: always ``False``
         """
         return False
 
@@ -420,6 +432,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         :param array_adapter: Adapter of arrays
         :param varray_adapter: Adapter of varrays
         :returns: matching Array or VArray, or ``None`` if nothing was found
+        :raises DekerServerError: if the server answered anything but 200 or 404
         """
         attrs = []
         primary_attributes = convert_datetime_attrs_to_iso(primary_attributes) or {}
@@ -460,13 +473,16 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
     ) -> ArrayT | None:
-        """Get and array/varray by given ID.
+        """Get an array/varray by given ID.
 
         :param id_: ID of array/varray
         :param collection: Deker's collection instance
         :param array_adapter: Array adapter
         :param varray_adapter: Varray adapter
-        :return:
+        :returns: the array, or ``None`` if the server has none with the id
+        :raises FilteringByIdInClusterIsForbidden: in cluster mode for a schema with primary attributes: the node
+          of an array is chosen by them, not by the id
+        :raises DekerServerError: if the server answered anything but 200 or 404
         """
         url = f"{self.path_stripped}/{self.type.name}/by-id/{id_}"
 
@@ -506,6 +522,10 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         )
 
     def __iter__(self) -> Generator["ArrayMeta", None, None]:
+        """Iterate over the metadata of the arrays of the collection; in cluster mode the Arrays of every node.
+
+        :yields: the metadata of every array
+        """
         urls = [f"{self.collection_path.raw_url}/{self.type.name}s"]
         if self.type == ArrayType.array and self.client.cluster_mode:
             urls = [

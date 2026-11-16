@@ -23,6 +23,13 @@ class ServerVarrayAdapter(ServerArrayAdapterMixin[VArray], BaseVArrayAdapter[Uri
         executor: ThreadPoolExecutor,
         storage_adapter: builtins.type["BaseStorageAdapter"],  # `type` is shadowed by the class attribute
     ) -> None:
+        """ServerVArrayAdapter constructor.
+
+        :param collection_path: uri of the collection
+        :param ctx: context of the client
+        :param executor: thread pool the Arrays of a VArray are processed in
+        :param storage_adapter: type of the adapter of the files, unused on the server side
+        """
         super().__init__(
             collection_path,
             ctx,
