@@ -416,22 +416,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
 
         raise DekerServerError(response, "Couldn't fetch an array")  # pragma: no cover  # guard: callers raise first
 
-    def get_by_primary_attributes(
-        self,
-        primary_attributes: dict,
-        schema: "BaseArraysSchema",
-        collection: "Collection",
-        array_adapter: "BaseArrayAdapter",
-        varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> ArrayT | None:
-        """Get array by given primary attribute.
+    def _response_by_primary_attributes(self, primary_attributes: dict, schema: "BaseArraysSchema") -> Response | None:
+        """Ask the server for the array with the primary attributes.
 
         :param primary_attributes: Key attributes
         :param schema: Array or Varray schema
-        :param collection: Collection instance
-        :param array_adapter: Adapter of arrays
-        :param varray_adapter: Adapter of varrays
-        :returns: matching Array or VArray, or ``None`` if nothing was found
+        :returns: the response with the metadata of the array, or ``None`` if the server has no such array
         :raises DekerServerError: if the server answered anything but 200 or 404
         """
         attrs = []
@@ -456,6 +446,32 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             raise DekerServerError(response, "Couldn't fetch array")
         if response.status_code == NOT_FOUND:
             return None
+        return response
+
+    def get_by_primary_attributes(
+        self,
+        primary_attributes: dict,
+        schema: "BaseArraysSchema",
+        collection: "Collection",
+        array_adapter: "BaseArrayAdapter",
+        varray_adapter: Optional["BaseVArrayAdapter"],
+    ) -> ArrayT | None:
+        """Get array by given primary attribute.
+
+        :param primary_attributes: Key attributes
+        :param schema: Array or Varray schema
+        :param collection: Collection instance
+        :param array_adapter: Adapter of arrays
+        :param varray_adapter: Adapter of varrays
+        :returns: matching Array or VArray, or ``None`` if nothing was found
+        :raises DekerFilterError: if the attributes are not exactly the primary attributes of the schema
+        :raises DekerServerError: if the server answered anything but 200 or 404
+        """
+        response = self._response_by_primary_attributes(
+            self._check_primary_attributes(primary_attributes, schema), schema
+        )
+        if response is None:
+            return None
         return self.__create_array_from_response(
             response,
             {
@@ -465,6 +481,22 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
                 "varray_adapter": varray_adapter,
             },
         )
+
+    def get_id_by_primary_attributes(self, primary_attributes: dict, schema: "BaseArraysSchema") -> str | None:
+        """Get the id of the array with the primary attributes: the server answers with the whole metadata anyway.
+
+        :param primary_attributes: Key attributes
+        :param schema: Array or Varray schema
+        :returns: the id, or ``None`` if the server has no such array
+        :raises DekerFilterError: if the attributes are not exactly the primary attributes of the schema
+        :raises DekerServerError: if the server answered anything but 200 or 404
+        """
+        response = self._response_by_primary_attributes(
+            self._check_primary_attributes(primary_attributes, schema), schema
+        )
+        if response is None:
+            return None
+        return cast("str", response.json()["id"])
 
     def get_by_id(
         self,

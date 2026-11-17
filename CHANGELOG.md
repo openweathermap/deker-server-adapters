@@ -14,6 +14,10 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
 - `create()` of the array adapters takes an `Array` or a `VArray` and returns it. The dict form
   moved to `create_from_dict()`, which warns about its deprecation; `create(dict)` still delegates
   to it, so the old code keeps working until 3.0.0.
+- `get_id_by_primary_attributes(primary_attributes, schema)` of the array adapters, required by the
+  adapter interface of DEKER™ 2.0.0: the id of an array by the same request as the whole array.
+- `get_by_primary_attributes` and `get_id_by_primary_attributes` raise `DekerFilterError` before any request
+  unless the attributes are exactly the primary attributes of the schema.
 - The data of an update are validated and converted before they are sent, by the rules of the
   local write in DEKER™ 2.0.0: Python numbers, lists and tuples are converted to the dtype of the
   collection when every value fits, NumPy arrays and scalars must match the dtype exactly, a

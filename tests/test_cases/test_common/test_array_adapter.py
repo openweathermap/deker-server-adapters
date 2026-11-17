@@ -12,7 +12,7 @@ import pytest
 from deker import ArraySchema, AttributeSchema, DimensionSchema
 from deker.arrays import Array
 from deker.collection import Collection
-from deker.errors import DekerArrayTypeError
+from deker.errors import DekerArrayTypeError, DekerFilterError
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
 from httpx import ReadTimeout
 from pytest_httpx import HTTPXMock
@@ -476,6 +476,107 @@ def test_by_primary_uses_only_primary_attributes_and_stringifies_tuples(
     )
     assert found is None
     assert unquote(str(httpx_mock.get_requests()[-1].url)).endswith("/array/by-primary/(1, 2)")
+
+
+class TestGetByPrimaryAttributesChecksTheAttributes:
+    """The whole-array search refuses an empty or incomplete set of attributes before asking the server."""
+
+    def test_a_schema_without_primary_attributes_is_refused(
+        self, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, collection: Collection
+    ):
+        with pytest.raises(DekerFilterError, match="primary attributes"):
+            server_array_adapter.get_by_primary_attributes(
+                {}, collection.array_schema, collection, server_array_adapter, None
+            )
+        assert not [r for r in httpx_mock.get_requests() if "by-primary" in str(r.url)]
+
+    def test_incomplete_attributes_are_refused(
+        self,
+        httpx_mock: HTTPXMock,
+        server_array_adapter: ServerArrayAdapter,
+        collection_with_primary_attributes: Collection,
+    ):
+        collection = collection_with_primary_attributes
+        with pytest.raises(DekerFilterError, match="is missing"):
+            server_array_adapter.get_by_primary_attributes(
+                {}, collection.array_schema, collection, server_array_adapter, None
+            )
+        assert not [r for r in httpx_mock.get_requests() if "by-primary" in str(r.url)]
+
+
+class TestGetIdByPrimaryAttributes:
+    """The id by the primary attributes comes from the same request as the whole array."""
+
+    def test_returns_the_id_of_the_found_array(
+        self,
+        array_with_attributes: Array,
+        httpx_mock: HTTPXMock,
+        server_array_adapter: ServerArrayAdapter,
+        collection_with_primary_attributes: Collection,
+        primary_attributes: dict,
+    ):
+        httpx_mock.add_response(json=array_with_attributes.as_dict, url=re.compile(r".*/by-primary/.*"))
+        found = server_array_adapter.get_id_by_primary_attributes(
+            primary_attributes, collection_with_primary_attributes.array_schema
+        )
+        assert found == array_with_attributes.id
+
+    def test_returns_none_when_the_server_has_no_such_array(
+        self,
+        httpx_mock: HTTPXMock,
+        server_array_adapter: ServerArrayAdapter,
+        collection_with_primary_attributes: Collection,
+        primary_attributes: dict,
+    ):
+        httpx_mock.add_response(status_code=404, url=re.compile(r".*/by-primary/.*"))
+        assert (
+            server_array_adapter.get_id_by_primary_attributes(
+                primary_attributes, collection_with_primary_attributes.array_schema
+            )
+            is None
+        )
+
+    def test_raises_on_a_server_error(
+        self,
+        httpx_mock: HTTPXMock,
+        server_array_adapter: ServerArrayAdapter,
+        collection_with_primary_attributes: Collection,
+        primary_attributes: dict,
+    ):
+        httpx_mock.add_response(status_code=500, url=re.compile(r".*/by-primary/.*"))
+        with pytest.raises(DekerServerError):
+            server_array_adapter.get_id_by_primary_attributes(
+                primary_attributes, collection_with_primary_attributes.array_schema
+            )
+
+    def test_a_schema_without_primary_attributes_is_refused(
+        self, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, collection: Collection
+    ):
+        """The server is not even asked: nothing identifies an array without primary attributes."""
+        with pytest.raises(DekerFilterError, match="primary attributes"):
+            server_array_adapter.get_id_by_primary_attributes({}, collection.array_schema)
+        assert not [r for r in httpx_mock.get_requests() if "by-primary" in str(r.url)]
+
+    def test_incomplete_attributes_are_refused(
+        self,
+        httpx_mock: HTTPXMock,
+        server_array_adapter: ServerArrayAdapter,
+        collection_with_primary_attributes: Collection,
+    ):
+        with pytest.raises(DekerFilterError, match="is missing"):
+            server_array_adapter.get_id_by_primary_attributes({}, collection_with_primary_attributes.array_schema)
+        assert not [r for r in httpx_mock.get_requests() if "by-primary" in str(r.url)]
+
+    def test_asks_by_the_same_path_as_the_whole_array(
+        self,
+        httpx_mock: HTTPXMock,
+        server_array_adapter: ServerArrayAdapter,
+        collection_with_tuple_and_custom_attributes: Collection,
+    ):
+        collection = collection_with_tuple_and_custom_attributes
+        httpx_mock.add_response(status_code=404, url=re.compile(r".*/by-primary/.*"))
+        server_array_adapter.get_id_by_primary_attributes({"pos": [1, 2]}, collection.array_schema)
+        assert unquote(str(httpx_mock.get_requests()[-1].url)).endswith("/array/by-primary/(1, 2)")
 
 
 def test_by_primary_fail(
