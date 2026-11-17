@@ -50,7 +50,7 @@ def _request(
     except InvalidConfigHash:
         raise
     except Exception as e:
-        logger.exception(f"Couldn't get response from {node}", exc_info=e)
+        logger.exception("Couldn't get response from %s", node, exc_info=e)
 
     return response
 

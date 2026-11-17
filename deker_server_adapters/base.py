@@ -537,7 +537,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
 
             if response.status_code != STATUS_OK:
                 if self.type == ArrayType.array:
-                    logger.warning(f"Couldn't fetch arrays from node: {url}")
+                    logger.warning("Couldn't fetch arrays from node: %s", url)
                 else:
                     raise DekerServerError(response, "Couldn't get list of arrays")
             else:

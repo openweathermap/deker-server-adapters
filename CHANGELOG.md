@@ -40,6 +40,7 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
 
 ### Internals and tooling
 
+- The messages of the log are formatted only when they are written.
 - The build moved from poetry to uv, ruff and pydoclint replace black, flake8, isort and darglint;
   `make ci`, `make test-matrix`, `make install-matrix`; `py.typed`, no type-check suppressions;
   100% test coverage required; tests in random order.
