@@ -1,8 +1,7 @@
 from json import JSONDecodeError
-from typing import Optional, Union
 
 from deker.errors import DekerBaseApplicationError
-from httpx import Response
+from httpx import Response, ResponseNotRead
 
 
 class DekerServerError(DekerBaseApplicationError):
@@ -12,35 +11,36 @@ class DekerServerError(DekerBaseApplicationError):
 
     def _make_response_from_response(
         self,
-        response: Union[Response, dict],
-        message: Optional[str] = None,
+        response: Response | dict,
+        message: str | None = None,
     ) -> str:
         """Make an Exception message based on response and provided text.
 
         :param response: Response from deker server
         :param message: Provided message
+        :returns: exception message with the response status and server message
         """
-        try:
-            if isinstance(response, dict):
-                status = None
-                server_message = response
-            else:
-                status = response.status_code
+        status: int | None = None
+        server_message: dict | str
+        if isinstance(response, dict):
+            server_message = response
+        else:
+            status = response.status_code
+            try:
                 server_message = response.json()
-
-        except JSONDecodeError:
-            status = response.status_code  # type: ignore[union-attr]
-            suffix = "..." if len(response.content) > self.MAX_ERROR_TEXT_SIZE else ""  # type: ignore[union-attr]
-            content = response.content[: self.MAX_ERROR_TEXT_SIZE]  # type: ignore[union-attr,assignment]
-            server_message = f"{content!r}" f"{suffix}"  # type: ignore[union-attr,assignment]
+            except JSONDecodeError:
+                suffix = "..." if len(response.content) > self.MAX_ERROR_TEXT_SIZE else ""
+                server_message = f"{response.content[: self.MAX_ERROR_TEXT_SIZE]!r}{suffix}"
+            except ResponseNotRead:
+                server_message = "<streamed body, not read>"
 
         message = message or ""
         return f"{message} \nResponse: {status=}, message={server_message}"
 
     def __init__(
         self,
-        response: Optional[Union[Response, dict]] = None,
-        message: Optional[str] = None,
+        response: Response | dict | None = None,
+        message: str | None = None,
     ) -> None:
         if response:
             self.message = self._make_response_from_response(response, message)
@@ -56,13 +56,11 @@ class DekerTimeoutServer(DekerServerError):
 class DekerBaseRateLimitError(DekerBaseApplicationError):
     """If we exceed request limit or number of data points is too large."""
 
-    limit: Optional[int]
-    remaining: Optional[int]
-    reset: Optional[int]
+    limit: int | None
+    remaining: int | None
+    reset: int | None
 
-    def __init__(
-        self, message: str, limit: Optional[int] = None, remaining: Optional[int] = None, reset: Optional[int] = None
-    ):
+    def __init__(self, message: str, limit: int | None = None, remaining: int | None = None, reset: int | None = None):
         self.limit = limit
         self.remaining = remaining
         self.reset = reset

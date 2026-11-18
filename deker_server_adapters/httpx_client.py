@@ -1,4 +1,4 @@
-from typing import Any, Type
+from typing import Any
 
 from deker.ctx import CTX
 from deker.errors import DekerMemoryError
@@ -12,6 +12,7 @@ from deker_server_adapters.consts import (
     LAST_MODIFIED_HEADER,
     NON_LEADER_WRITE,
     RATE_ERROR_MESSAGE,
+    STATUS_OK,
     TOO_LARGE_ERROR_MESSAGE,
     TOO_MANY_REQUESTS,
 )
@@ -23,7 +24,7 @@ from deker_server_adapters.errors import (
 )
 
 
-def rate_limit_err(response: Response, message: str, class_: Type[DekerBaseRateLimitError]) -> None:
+def rate_limit_err(response: Response, message: str, class_: type[DekerBaseRateLimitError]) -> None:
     """Raise an error with rate limit parameters.
 
     This function incapsulates logic of fetching rates from headers
@@ -31,6 +32,7 @@ def rate_limit_err(response: Response, message: str, class_: Type[DekerBaseRateL
     :param response: HttpxResponse object
     :param message: Message of the exception
     :param class_: Class (Type) of the exception
+    :raises DekerBaseRateLimitError: always, the given class with the limits from the ``RateLimit-*`` headers
     """
     limit = response.headers.get("RateLimit-Limit")
     remaining = response.headers.get("RateLimit-Remaining")
@@ -45,25 +47,52 @@ def rate_limit_err(response: Response, message: str, class_: Type[DekerBaseRateL
 
 
 class HttpxClient(Client):
-    """Wrapper around HttpxClient."""
+    """The http client of the adapters: an ``httpx.Client`` that follows the cluster and translates its errors.
+
+    A response saying the cluster config changed is applied and the request repeated; a write sent to a
+    non-leader node is repeated on the leader; the rate limit answers become Deker errors.
+    """
 
     ctx: CTX
     cluster_mode: bool = False
 
-    def request(self, *args: Any, retry_on_hash_failure: bool = False, **kwargs: Any) -> Response:
-        """Override httpx method to handle rate errors.
+    def _send(self, *args: Any, stream: bool, **kwargs: Any) -> Response:
+        r"""Send a request, leaving the body of a successful response unread when ``stream`` is set.
 
-        :param args: arguments to request
-        :param retry_on_hash_failure: If we should retry on invalid hash
-        :param kwargs: keyword arguments to request
+        Any other response is read in full at once, so error handling and node fallback
+        never meet an unread body.
+
+        :param \*args: arguments to request
+        :param stream: do not read the body of a ``200`` response
+        :param \**kwargs: keyword arguments to request
+        :returns: server response
         """
-        response = super().request(*args, **kwargs)
+        if not stream:
+            return super().request(*args, **kwargs)
+        response = self.send(self.build_request(*args, **kwargs), stream=True)
+        if response.status_code != STATUS_OK:
+            response.read()
+        return response
+
+    def request(self, *args: Any, retry_on_hash_failure: bool = False, stream: bool = False, **kwargs: Any) -> Response:
+        r"""Override httpx method to handle rate errors.
+
+        :param \*args: arguments to request
+        :param retry_on_hash_failure: If we should retry on invalid hash
+        :param stream: leave the body of a successful response unread, to be consumed by the caller
+        :param \**kwargs: keyword arguments to request
+        :returns: server response
+        :raises InvalidConfigHash: if the cluster config changed and the request is not to be retried
+        :raises DekerRateLimitError: if the server answered 429
+        :raises DekerDataPointsLimitError: if the server refused the request as too large
+        """
+        response = self._send(*args, stream=stream, **kwargs)
         if response.status_code == CONFLICT_HASH:
             apply_config(response.json(), self.ctx)
             if LAST_MODIFIED_HEADER in response.headers:
                 self.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})
             if retry_on_hash_failure:
-                response = super().request(*args, **kwargs)
+                response = self._send(*args, stream=stream, **kwargs)
             else:
                 raise InvalidConfigHash("Cluster hash conflict")
 
@@ -77,6 +106,6 @@ class HttpxClient(Client):
 
         if response.status_code == NON_LEADER_WRITE:
             apply_config(response.json(), self.ctx)
-            return super().request(*args, **kwargs)
+            return self._send(*args, stream=stream, **kwargs)
 
         return response

@@ -1,10 +1,14 @@
 import re
 
-from deker import VArray
+import httpx
+
+from deker import Array, VArray
 from deker.ctx import CTX
 from pytest_httpx import HTTPXMock
 
-from deker_server_adapters.consts import NON_LEADER_WRITE
+from deker_server_adapters.array_adapter import ServerArrayAdapter
+from deker_server_adapters.consts import LAST_MODIFIED_HEADER, NON_LEADER_WRITE
+from deker_server_adapters.models import Status
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -49,3 +53,25 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
     )
     server_varray_adapter.update_meta_custom_attributes(varray, {})
     assert server_varray_adapter.ctx.extra["cluster_config"]
+
+
+def test_hash_conflict_without_last_modified_header_keeps_the_old_one(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mocked_ping: dict, array: Array
+):
+    """A 409 without the header still applies the config and retries, the stored hash is untouched."""
+    client = server_array_adapter.client
+    before = client.headers.get(LAST_MODIFIED_HEADER)
+    calls = {"array": 0}
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith("/status"):
+            return httpx.Response(200, text=Status.UNMOVED.value)
+        calls["array"] += 1
+        if calls["array"] == 1:
+            return httpx.Response(409, json=mocked_ping)
+        return httpx.Response(200, json=array.as_dict)
+
+    httpx_mock.add_callback(respond)
+    server_array_adapter.read_meta(array)
+    assert calls["array"] == 2
+    assert client.headers.get(LAST_MODIFIED_HEADER) == before

@@ -3,7 +3,7 @@ import json
 import pytest
 
 from deker.collection import Collection
-from deker.errors import DekerCollectionAlreadyExistsError, DekerCollectionNotExistsError
+from deker.errors import DekerAdapterClosedError, DekerCollectionAlreadyExistsError, DekerCollectionNotExistsError
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
@@ -22,7 +22,36 @@ def test_collection_create(
     assert collection_adapter.create(collection) is None
 
 
-@pytest.mark.parametrize("method", ("create", "delete", "read", "clear"))
+@pytest.mark.parametrize("method", ["create", "delete", "clear", "is_deleted"])
+def test_closed_collection_adapter_raises(
+    method: str,
+    collection_adapter: ServerCollectionAdapter,
+    collection: Collection,
+):
+    """Test a collection adapter of a closed context answers with DekerAdapterClosedError."""
+    collection_adapter.ctx.is_closed = True
+    try:
+        with pytest.raises(DekerAdapterClosedError):
+            getattr(collection_adapter, method)(collection)
+        with pytest.raises(DekerAdapterClosedError):
+            collection_adapter.read(collection.name)
+        with pytest.raises(DekerAdapterClosedError):
+            list(collection_adapter)
+    finally:
+        collection_adapter.ctx.is_closed = False
+
+
+def test_closed_factory_raises(adapter_factory: AdaptersFactory, collection: Collection):
+    """Test a closed factory marks its own context and gives no adapters."""
+    adapter_factory.close()
+    assert adapter_factory.ctx.is_closed
+    with pytest.raises(DekerAdapterClosedError):
+        adapter_factory.get_collection_adapter()
+    with pytest.raises(DekerAdapterClosedError):
+        adapter_factory.get_array_adapter(collection.path, adapter_factory.ctx.storage_adapter)
+
+
+@pytest.mark.parametrize("method", ["create", "delete", "read", "clear"])
 def test_collection_raises_500(
     method: str,
     collection_adapter: ServerCollectionAdapter,

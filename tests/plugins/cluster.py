@@ -1,7 +1,5 @@
 import re
 
-from typing import Dict, List
-
 import pytest
 
 from deker.uri import Uri
@@ -12,7 +10,7 @@ from deker_server_adapters.models import Status
 
 
 @pytest.fixture(scope="session")
-def nodes() -> List[Dict]:
+def nodes() -> list[dict]:
     return [
         {
             "id": "8381202B-8C95-487A-B9B5-0B527056804E",
@@ -31,8 +29,8 @@ def nodes() -> List[Dict]:
     ]
 
 
-@pytest.fixture()
-def nodes_urls(nodes) -> List[str]:
+@pytest.fixture
+def nodes_urls(nodes) -> list[str]:
     urls = []
     for node in nodes:
         url = f"{node['protocol']}://{node['host']}:{node['port']}"
@@ -40,7 +38,7 @@ def nodes_urls(nodes) -> List[str]:
     return urls
 
 
-@pytest.fixture()
+@pytest.fixture
 def base_cluster_uri(nodes_urls):
     uri = Uri.create("http://localhost:8000,localhost:8012")
     kwargs = {key: getattr(uri, key) for key in uri._fields}
@@ -48,8 +46,8 @@ def base_cluster_uri(nodes_urls):
     return uri
 
 
-@pytest.fixture()
-def mocked_ping(nodes: List[Dict], status: str) -> Dict:
+@pytest.fixture
+def mocked_ping(nodes: list[dict], status: str) -> dict:
     return {
         "mode": "cluster",
         "cluster_status": status,
@@ -65,7 +63,7 @@ def mock_healthcheck(httpx_mock: HTTPXMock, mocked_ping):
     httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping)
 
 
-@pytest.fixture()
+@pytest.fixture
 def mocked_filestatus_check_unmoved(httpx_mock: HTTPXMock, status: str):
     if status == REBALANCING_STATUS:
         httpx_mock.add_response(method="GET", url=re.compile(r".*\/status.*"), text=Status.UNMOVED.value)

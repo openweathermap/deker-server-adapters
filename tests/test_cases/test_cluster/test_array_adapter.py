@@ -1,7 +1,8 @@
 import json
 import re
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import httpx
 import numpy as np
@@ -16,7 +17,6 @@ from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.errors import FilteringByIdInClusterIsForbidden
 from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key
-
 
 if TYPE_CHECKING:
     from httpx import Request
@@ -50,8 +50,9 @@ def test_array_generate_id(array: Array, server_array_adapter: ServerArrayAdapte
     httpx_mock.add_response(method="POST", json=array.as_dict, status_code=201)
     data = array.as_dict
     data.update({"id": None, "id_": None, "primary_attributes": {}})
-    server_array_adapter.create({**data, "adapter": server_array_adapter, "collection": collection})
-    requests: List[Request] = httpx_mock.get_requests()
+    with pytest.warns(DeprecationWarning, match="3.0.0"):
+        server_array_adapter.create_from_dict({**data, "adapter": server_array_adapter, "collection": collection})
+    requests: list[Request] = httpx_mock.get_requests()
     for request in requests:
         if request.method == "POST":
             assert json.loads(request.content.decode())["id_"]
@@ -75,7 +76,7 @@ def test_iter_success(
 
 def test_filter_by_id_is_not_allowed(collection_with_primary_attributes):
     with pytest.raises(FilteringByIdInClusterIsForbidden):
-        collection_with_primary_attributes.filter({"id": "foo"}).last()
+        collection_with_primary_attributes.filter({"id": str(uuid4())}).last()
 
 
 def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mocked_ping, array, status: str):

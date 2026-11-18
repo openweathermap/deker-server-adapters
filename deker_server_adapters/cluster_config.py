@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from functools import cached_property
 from json import JSONDecodeError
-from typing import List, Optional
 
 from deker.ctx import CTX
 from deker.uri import Uri
@@ -17,17 +16,17 @@ CLUSTER_MODE = "cluster"
 
 @dataclass
 class Node:
-    """Node of cluster."""
+    """Node of cluster: its address, its id and the storage it serves."""
 
     host: str
     port: str
     protocol: str = "http"
-    id: Optional[str] = None
-    storage: Optional[str] = None
+    id: str | None = None
+    storage: str | None = None
 
     @cached_property
     def url(self) -> Uri:
-        """Make an Uri instance."""
+        """Get the uri of the node: ``protocol://host:port``."""
         return Uri.create(f"{self.protocol}://{self.host}:{self.port}")
 
     def __hash__(self) -> int:
@@ -35,45 +34,58 @@ class Node:
         return hash(str(self))
 
     def __str__(self) -> str:
-        """String representation."""
+        """Get the id of the node, the key it is placed on the hash ring by; empty without an id."""
         return self.id or ""
+
+
+def _nodes_from_dicts(nodes: list[dict]) -> list[Node]:
+    """Build the nodes from their dictionaries, sorted by their ids.
+
+    :param nodes: node dictionaries from the server
+    :returns: the nodes
+    """
+    return sorted((Node(**node_dict) for node_dict in nodes), key=str)
 
 
 @dataclass
 class ClusterConfig:
-    """Normal mode of cluster config."""
+    """Config of the cluster as the server reports it.
+
+    :param mode: mode of the server, ``cluster`` for a cluster
+    :param leader: the leader node, which takes the writes of the collections and the VArrays
+    :param current: the nodes serving the data now
+    :param target: the nodes the data is being moved to, only while the cluster is rebalancing
+    :param cluster_status: status reported by the server
+    """
 
     mode: str
     leader: Node
-    current: List[Node]
-    target: Optional[List[Node]] = None  # Only appears when cluster in rebalancing mode
-    cluster_status: Optional[str] = ""
-    __hash_ring: HashRing = field(init=False)
-    __hash_ring_target: HashRing = field(init=False)
+    current: list[Node]
+    target: list[Node] | None = None  # Only appears when cluster in rebalancing mode
+    cluster_status: str | None = ""
+    __hash_ring: HashRing[Node] = field(init=False)
+    __hash_ring_target: HashRing[Node] = field(init=False)
 
     @classmethod
     def from_dict(cls, cluster_config_dict: dict) -> "ClusterConfig":
         """Create cluster config from dict.
 
         :param cluster_config_dict: Cluster configuration that comes from server.
+        :returns: ClusterConfig instance
+        :raises DekerClusterError: if the leader is not among the raft nodes
         """
         leader_id = cluster_config_dict["leader_id"]
 
-        def process_nodes(nodes: List[dict]) -> List[Node]:
-            node_list = [Node(**node_dict) for node_dict in nodes]
-            node_list.sort(key=lambda x: str(x))
-            return node_list
-
         # cluster always returns all current RAFT nodes, thus we don't need to check target config to know the leader
         # we won't need RAFT cluster config after getting the leader
-        raft_nodes = process_nodes(cluster_config_dict["raft"])
+        raft_nodes = _nodes_from_dicts(cluster_config_dict["raft"])
         leader = next((node for node in raft_nodes if node.id == leader_id), None)
 
         if not leader:
             raise DekerClusterError(None, "No leader has been found")
 
-        current = process_nodes(cluster_config_dict["current"])
-        target = process_nodes(cluster_config_dict["target"]) if "target" in cluster_config_dict else None
+        current = _nodes_from_dicts(cluster_config_dict["current"])
+        target = _nodes_from_dicts(cluster_config_dict["target"]) if "target" in cluster_config_dict else None
 
         return cls(
             mode=cluster_config_dict["mode"],
@@ -84,11 +96,13 @@ class ClusterConfig:
         )
 
 
-def is_config_in_cluster_mode(config: Optional[dict], ctx: CTX) -> bool:
+def is_config_in_cluster_mode(config: dict | None, ctx: CTX) -> bool:
     """Check if mode from config is set to cluster.
 
     :param config: Config from response
     :param ctx: Context of app
+    :returns: ``True`` if the server runs in cluster mode
+    :raises DekerClusterError: if the uri lists several servers and the config is not a cluster one
     """
     if not ctx.uri.servers:
         return config is not None and config.get("mode") == CLUSTER_MODE
@@ -96,8 +110,7 @@ def is_config_in_cluster_mode(config: Optional[dict], ctx: CTX) -> bool:
     if config is None or config.get("mode") != CLUSTER_MODE:
         raise DekerClusterError(
             config,
-            "Server responded with wrong config."
-            " Key 'mode' either doesn't exist or its value differs from 'cluster'",
+            "Server responded with wrong config. Key 'mode' either doesn't exist or its value differs from 'cluster'",
         )
 
     return True
@@ -106,8 +119,11 @@ def is_config_in_cluster_mode(config: Optional[dict], ctx: CTX) -> bool:
 def apply_config(config_dict: dict, ctx: CTX) -> None:
     """Apply config from server.
 
+    The config, the leader as the base url of the client and the hash rings go into the context.
+
     :param config_dict: Config from server
     :param ctx: Application context
+    :raises DekerClusterError: if the leader is not among the raft nodes
     """
     config = ClusterConfig.from_dict(config_dict)
     # Config
@@ -126,9 +142,11 @@ def apply_config(config_dict: dict, ctx: CTX) -> None:
 
 
 def request_and_apply_config(ctx: CTX) -> None:
-    """Request cluster config from server and apply it on current context.
+    """Ping the server (every server of a cluster uri), check it answers and apply the cluster config it returns.
 
     :param ctx: Application context
+    :raises DekerServerError: if no server answered the ping with 200; the http client is closed then
+    :raises DekerClusterError: if the config of a cluster uri is not a cluster config, or the config is not a json
     """
     httpx_client = ctx.extra["httpx_client"]
     url = f"{get_api_version()}/ping"
@@ -145,7 +163,7 @@ def request_and_apply_config(ctx: CTX) -> None:
         )
 
     try:
-        config = response.json()  # type: ignore[union-attr]
+        config = response.json()
         if is_config_in_cluster_mode(config, ctx):
             # Set hash of config
             httpx_client.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})

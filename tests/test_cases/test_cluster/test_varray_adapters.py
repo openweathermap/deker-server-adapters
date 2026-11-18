@@ -1,8 +1,9 @@
 import json
 import re
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 from unittest.mock import patch
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -18,12 +19,11 @@ from deker_server_adapters.models import Status
 from deker_server_adapters.utils.hashing import get_hash_key
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
-
 if TYPE_CHECKING:
     from httpx import Request
 
 
-def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: List[str]):
+def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: list[str]):
     with patch.object(varray, "primary_attributes", {}):
         # Check window slides
 
@@ -31,7 +31,7 @@ def test_get_node_by_id(varray: VArray, server_varray_adapter: ServerVarrayAdapt
         assert node in nodes_urls
 
 
-def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: List[str]):
+def test_get_node_by_primary(varray: VArray, server_varray_adapter: ServerVarrayAdapter, nodes_urls: list[str]):
     with patch.object(varray, "primary_attributes", {"foo": "bar"}):
         # Check window slides
 
@@ -56,15 +56,16 @@ def test_array_generate_id(
     httpx_mock.add_response(method="POST", json=varray.as_dict, status_code=201)
     data = varray.as_dict
     data.update({"id": None, "id_": None, "primary_attributes": None})
-    server_varray_adapter.create(
-        {
-            **data,
-            "adapter": server_varray_adapter,
-            "collection": varray_collection,
-            "array_adapter": server_array_adapter,
-        }
-    )
-    requests: List[Request] = httpx_mock.get_requests()
+    with pytest.warns(DeprecationWarning, match="3.0.0"):
+        server_varray_adapter.create_from_dict(
+            {
+                **data,
+                "adapter": server_varray_adapter,
+                "collection": varray_collection,
+                "array_adapter": server_array_adapter,
+            }
+        )
+    requests: list[Request] = httpx_mock.get_requests()
     for request in requests:
         if request.method == "POST":
             assert json.loads(request.content.decode())["id_"]
@@ -82,7 +83,7 @@ def test_read_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_
 
 def test_filter_by_id_is_not_allowed(varray_collection_with_primary_attributes):
     with pytest.raises(FilteringByIdInClusterIsForbidden):
-        varray_collection_with_primary_attributes.filter({"id": "foo"}).last()
+        varray_collection_with_primary_attributes.filter({"id": str(uuid4())}).last()
 
 
 def test_hash_updated(httpx_mock: HTTPXMock, server_varray_adapter: ServerArrayAdapter, mocked_ping, varray):
