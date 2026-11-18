@@ -91,7 +91,7 @@ dev = [
     "pytest-random-order>=1.2.0",
     "pytest-mock>=3.17.0",
     "pytest-httpx>=0.36.2",
-    "deker>=1.2.0b1,<2",
+    "deker>=2.0.0b0,<3",
 ]
 docs = [
     "docutils>=0.21.2",
