@@ -1,11 +1,13 @@
 import re
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+import numpy as np
 import pytest
 
-from deker import ArraySchema, AttributeSchema, DimensionSchema, VArraySchema
+from deker import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.config import DekerConfig
@@ -215,6 +217,62 @@ def varray(varray_collection: Collection, adapter_factory: AdaptersFactory) -> V
         collection=varray_collection,
         adapter=adapter_factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter),
         array_adapter=adapter_factory.get_array_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter),
+        primary_attributes={},
+        custom_attributes={},
+        id_=str(uuid4()),
+    )
+
+
+# The array of the step tests: 12 hours by 10 cells, enough for the steps 3, -2 and -3 on both axes
+STEPPED_START = datetime(2024, 1, 1, tzinfo=timezone.utc)
+STEPPED_DIMENSIONS = [
+    TimeDimensionSchema(name="t", size=12, start_value=STEPPED_START, step=timedelta(hours=1)),
+    DimensionSchema(name="x", size=10),
+]
+STEP_CASES = [
+    pytest.param(np.index_exp[::3], id="3"),
+    pytest.param(np.index_exp[::-2], id="minus-2"),
+    pytest.param(np.index_exp[::-3], id="minus-3"),
+    pytest.param(np.index_exp[::3, ::-2], id="3-minus-2"),
+    pytest.param(np.index_exp[1::3, 9::-3], id="bounds-3-minus-3"),
+    pytest.param(np.index_exp[:, ::-3], id="second-axis-minus-3"),
+    pytest.param(np.index_exp[:: timedelta(hours=3)], id="3h"),
+    pytest.param(np.index_exp[:: -timedelta(hours=2)], id="minus-2h"),
+    pytest.param(np.index_exp[:: -timedelta(hours=3), ::-2], id="minus-3h-minus-2"),
+]
+
+
+@pytest.fixture
+def stepped_array(
+    adapter_factory: AdaptersFactory,
+    collection_adapter: ServerCollectionAdapter,
+    server_array_adapter: ServerArrayAdapter,
+) -> Array:
+    """A 12x10 int32 array with a time axis for the step tests."""
+    collection = Collection(
+        name="stepped",
+        schema=ArraySchema(dimensions=STEPPED_DIMENSIONS, dtype=np.int32),
+        adapter=collection_adapter,
+        factory=adapter_factory,
+        storage_adapter=HDF5StorageAdapter,
+    )
+    return Array(collection, server_array_adapter)
+
+
+@pytest.fixture
+def stepped_varray(adapter_factory: AdaptersFactory, collection_adapter: ServerCollectionAdapter) -> VArray:
+    """A 12x10 int32 varray of 3x2 Arrays with a time axis for the step tests."""
+    collection = Collection(
+        name="stepped_v",
+        schema=VArraySchema(dimensions=STEPPED_DIMENSIONS, dtype=np.int32, vgrid=(3, 2)),
+        adapter=collection_adapter,
+        factory=adapter_factory,
+        storage_adapter=HDF5StorageAdapter,
+    )
+    return VArray(
+        collection=collection,
+        adapter=adapter_factory.get_varray_adapter(collection.path, storage_adapter=HDF5StorageAdapter),
+        array_adapter=adapter_factory.get_array_adapter(collection.path, storage_adapter=HDF5StorageAdapter),
         primary_attributes={},
         custom_attributes={},
         id_=str(uuid4()),

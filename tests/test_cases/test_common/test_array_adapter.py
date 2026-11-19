@@ -14,10 +14,11 @@ from deker.arrays import Array
 from deker.collection import Collection
 from deker.errors import DekerArrayTypeError, DekerFilterError
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from deker_tools.slices import slices_to_str
 from httpx import ReadTimeout
 from pytest_httpx import HTTPXMock
 
-from tests.conftest import CLUSTER_MODE
+from tests.conftest import CLUSTER_MODE, STEP_CASES
 
 from deker_server_adapters import base
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -639,3 +640,42 @@ def test_delete_all_by_vid_fails_when_arrays_cannot_be_listed(
     httpx_mock.add_response(method="GET", url=re.compile(r".*/arrays/$"), status_code=500)
     with pytest.raises(DekerServerError, match="list of the arrays"):
         server_array_adapter.delete_all_by_vid("v", collection)
+
+
+@pytest.mark.parametrize("bounds", STEP_CASES)
+def test_read_data_with_steps_asks_the_server_for_the_stepped_bounds(
+    stepped_array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None, bounds
+):
+    """The bounds string of the request carries the steps as positions, and the body streams into the stepped shape.
+
+    A timedelta step is converted to positions by the subset, before the adapter: the server never sees a duration.
+    """
+    subset = stepped_array[bounds]
+    shape = subset.shape
+    expected = np.arange(np.prod(shape), dtype=stepped_array.dtype).reshape(shape)
+    httpx_mock.add_response(content=expected.tobytes(), url=re.compile(r".*array.*"))
+
+    result = server_array_adapter.read_data(stepped_array, subset.bounds)
+
+    request = httpx_mock.get_requests()[-1]
+    assert unquote(request.url.path).endswith(f"/subset/{slices_to_str(subset.bounds)}/data")
+    assert result.shape == expected.shape
+    assert np.array_equal(result, expected)
+
+
+@pytest.mark.parametrize("bounds", STEP_CASES)
+def test_update_with_steps_sends_the_stepped_region(
+    stepped_array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None, bounds
+):
+    """The bounds string of the request carries the steps as positions, the body is the region of the stepped shape."""
+    subset = stepped_array[bounds]
+    shape = subset.shape
+    data = np.arange(np.prod(shape), dtype=stepped_array.dtype).reshape(shape)
+    httpx_mock.add_response(url=re.compile(r".*array.*"))
+
+    server_array_adapter.update(stepped_array, subset.bounds, data)
+
+    request = httpx_mock.get_requests()[-1]
+    assert request.method == "PUT"
+    assert unquote(request.url.path).endswith(f"/subset/{slices_to_str(subset.bounds)}/data")
+    assert request.content == data.tobytes()
