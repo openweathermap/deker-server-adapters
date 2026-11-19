@@ -58,7 +58,7 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
 def test_hash_conflict_without_last_modified_header_keeps_the_old_one(
     httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mocked_ping: dict, array: Array
 ):
-    """A 409 without the header still applies the config and retries, the stored hash is untouched."""
+    """A 412 without the header still applies the config and retries, the stored hash is untouched."""
     client = server_array_adapter.client
     before = client.headers.get(LAST_MODIFIED_HEADER)
     calls = {"array": 0}
@@ -68,7 +68,7 @@ def test_hash_conflict_without_last_modified_header_keeps_the_old_one(
             return httpx.Response(200, text=Status.UNMOVED.value)
         calls["array"] += 1
         if calls["array"] == 1:
-            return httpx.Response(409, json=mocked_ping)
+            return httpx.Response(412, json=mocked_ping)
         return httpx.Response(200, json=array.as_dict)
 
     httpx_mock.add_callback(respond)

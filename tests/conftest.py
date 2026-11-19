@@ -1,7 +1,9 @@
 import re
+import string
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 from uuid import uuid4
 
 import numpy as np
@@ -223,56 +225,65 @@ def varray(varray_collection: Collection, adapter_factory: AdaptersFactory) -> V
     )
 
 
-# The array of the step tests: 12 hours by 10 cells, enough for the steps 3, -2 and -3 on both axes
-STEPPED_START = datetime(2024, 1, 1, tzinfo=timezone.utc)
-STEPPED_DIMENSIONS = [
-    TimeDimensionSchema(name="t", size=12, start_value=STEPPED_START, step=timedelta(hours=1)),
+# The arrays of the bounds tests: 10x10x10 with a plain axis, a labelled axis and a time axis, as on the server.
+# The bounds do not depend on the mode of the client nor on the status of the cluster, and the tests are many
+# (every index expression of DEKER), so the context, the factory and the arrays are built once per module
+# on a single server that answers nothing: the tests mock the responses they need.
+BOUNDS_START = datetime.fromtimestamp(1663200000, tz=timezone.utc)
+BOUNDS_DIMENSIONS = [
     DimensionSchema(name="x", size=10),
-]
-STEP_CASES = [
-    pytest.param(np.index_exp[::3], id="3"),
-    pytest.param(np.index_exp[::-2], id="minus-2"),
-    pytest.param(np.index_exp[::-3], id="minus-3"),
-    pytest.param(np.index_exp[::3, ::-2], id="3-minus-2"),
-    pytest.param(np.index_exp[1::3, 9::-3], id="bounds-3-minus-3"),
-    pytest.param(np.index_exp[:, ::-3], id="second-axis-minus-3"),
-    pytest.param(np.index_exp[:: timedelta(hours=3)], id="3h"),
-    pytest.param(np.index_exp[:: -timedelta(hours=2)], id="minus-2h"),
-    pytest.param(np.index_exp[:: -timedelta(hours=3), ::-2], id="minus-3h-minus-2"),
+    DimensionSchema(name="layers", size=10, labels=list(string.ascii_lowercase)[:10]),
+    TimeDimensionSchema(name="forecast_dt", size=10, start_value=BOUNDS_START, step=timedelta(days=3)),
 ]
 
 
-@pytest.fixture
-def stepped_array(
-    adapter_factory: AdaptersFactory,
-    collection_adapter: ServerCollectionAdapter,
-    server_array_adapter: ServerArrayAdapter,
-) -> Array:
-    """A 12x10 int32 array with a time axis for the step tests."""
+@pytest.fixture(scope="module")
+def bounds_factory() -> AdaptersFactory:
+    """The factory of the bounds tests, on a single server that is not asked anything at creation."""
+    uri = Uri.create("http://localhost:8000")
+    ctx = CTX(
+        uri=uri,
+        config=DekerConfig(
+            uri=str(uri.raw_url), workers=1, write_lock_timeout=1, write_lock_check_interval=1, memory_limit=40000
+        ),
+        storage_adapter=HDF5StorageAdapter,
+        executor=ThreadPoolExecutor(max_workers=1),
+    )
+    with patch("deker_server_adapters.factory.request_and_apply_config"):
+        factory = AdaptersFactory(ctx, uri=uri)
+    try:
+        yield factory
+    finally:
+        factory.close()
+
+
+@pytest.fixture(scope="module")
+def bounds_array(bounds_factory: AdaptersFactory) -> Array:
+    """A 10x10x10 int32 array with a labelled and a time axis for the bounds tests."""
     collection = Collection(
-        name="stepped",
-        schema=ArraySchema(dimensions=STEPPED_DIMENSIONS, dtype=np.int32),
-        adapter=collection_adapter,
-        factory=adapter_factory,
+        name="bounds",
+        schema=ArraySchema(dimensions=BOUNDS_DIMENSIONS, dtype=np.int32),
+        adapter=bounds_factory.get_collection_adapter(),
+        factory=bounds_factory,
         storage_adapter=HDF5StorageAdapter,
     )
-    return Array(collection, server_array_adapter)
+    return Array(collection, bounds_factory.get_array_adapter(collection.path, storage_adapter=HDF5StorageAdapter))
 
 
-@pytest.fixture
-def stepped_varray(adapter_factory: AdaptersFactory, collection_adapter: ServerCollectionAdapter) -> VArray:
-    """A 12x10 int32 varray of 3x2 Arrays with a time axis for the step tests."""
+@pytest.fixture(scope="module")
+def bounds_varray(bounds_factory: AdaptersFactory) -> VArray:
+    """A 10x10x10 int32 varray of 2x2x2 Arrays with a labelled and a time axis for the bounds tests."""
     collection = Collection(
-        name="stepped_v",
-        schema=VArraySchema(dimensions=STEPPED_DIMENSIONS, dtype=np.int32, vgrid=(3, 2)),
-        adapter=collection_adapter,
-        factory=adapter_factory,
+        name="bounds_v",
+        schema=VArraySchema(dimensions=BOUNDS_DIMENSIONS, dtype=np.int32, vgrid=(2, 2, 2)),
+        adapter=bounds_factory.get_collection_adapter(),
+        factory=bounds_factory,
         storage_adapter=HDF5StorageAdapter,
     )
     return VArray(
         collection=collection,
-        adapter=adapter_factory.get_varray_adapter(collection.path, storage_adapter=HDF5StorageAdapter),
-        array_adapter=adapter_factory.get_array_adapter(collection.path, storage_adapter=HDF5StorageAdapter),
+        adapter=bounds_factory.get_varray_adapter(collection.path, storage_adapter=HDF5StorageAdapter),
+        array_adapter=bounds_factory.get_array_adapter(collection.path, storage_adapter=HDF5StorageAdapter),
         primary_attributes={},
         custom_attributes={},
         id_=str(uuid4()),

@@ -10,7 +10,9 @@ TIMEOUT = 504
 CONTENT_TOO_LARGE = 413
 TOO_MANY_REQUESTS = 429
 NON_LEADER_WRITE = 421
-CONFLICT_HASH = 409
+PRECONDITION_FAILED = 412  # the cluster configuration of the client is stale
+LOCKED = 423  # the array is held by another process
+WRITTEN_PARTLY = 409  # some Arrays of a VArray could not be written
 
 # Name of the parameter in the server response
 COLLECTION_NAME_PARAM = "collection_name"

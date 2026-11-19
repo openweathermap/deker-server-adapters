@@ -6,11 +6,11 @@ from httpx import Client, Response
 
 from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.consts import (
-    CONFLICT_HASH,
     CONTENT_TOO_LARGE,
     EXCEPTION_CLASS_PARAM_NAME,
     LAST_MODIFIED_HEADER,
     NON_LEADER_WRITE,
+    PRECONDITION_FAILED,
     RATE_ERROR_MESSAGE,
     STATUS_OK,
     TOO_LARGE_ERROR_MESSAGE,
@@ -87,7 +87,7 @@ class HttpxClient(Client):
         :raises DekerDataPointsLimitError: if the server refused the request as too large
         """
         response = self._send(*args, stream=stream, **kwargs)
-        if response.status_code == CONFLICT_HASH:
+        if response.status_code == PRECONDITION_FAILED:
             apply_config(response.json(), self.ctx)
             if LAST_MODIFIED_HEADER in response.headers:
                 self.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})

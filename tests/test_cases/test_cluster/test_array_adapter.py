@@ -93,7 +93,7 @@ def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAd
             request_counter.count += 1
 
             if request_counter.count < 2:
-                return httpx.Response(409, json=mocked_ping, headers={LAST_MODIFIED_HEADER: "new-hash"})
+                return httpx.Response(412, json=mocked_ping, headers={LAST_MODIFIED_HEADER: "new-hash"})
             else:
                 return httpx.Response(200, json=data)
 

@@ -27,6 +27,14 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
   ring is generic over the node type.
 - The adapter interfaces are generic over the path and the array type (`deker` 2.0.0); the
   methods of a closed context raise `DekerAdapterClosedError`.
+- The errors of the locks of DEKER™ reach the client as the same errors: a held array (a `423`
+  of the server: a writer holds it, or readers hold it for the whole write lock timeout) raises
+  `DekerLockError` with the message of the server on a lookup, a read, a write, a clear, a delete
+  and an update of the attributes; a VArray written partly (a `409` of the server: some of its
+  Arrays could not be written, the others are written) raises `DekerVSubsetError` with the
+  message of the server and no causes, as the local adapters do.
+- A stale configuration of the cluster is a `412` of the server, not a `409`; the client refreshes
+  the configuration and retries as before.
 
 ### Changed
 

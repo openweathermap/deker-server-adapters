@@ -12,13 +12,14 @@ import pytest
 from deker import ArraySchema, AttributeSchema, DimensionSchema
 from deker.arrays import Array
 from deker.collection import Collection
-from deker.errors import DekerArrayTypeError, DekerFilterError
+from deker.errors import DekerArrayTypeError, DekerFilterError, DekerLockError, DekerValidationError
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
 from deker_tools.slices import slices_to_str
 from httpx import ReadTimeout
 from pytest_httpx import HTTPXMock
 
-from tests.conftest import CLUSTER_MODE, STEP_CASES
+from tests.conftest import CLUSTER_MODE
+from tests.params.slices import invalid_index_params, valid_index_params
 
 from deker_server_adapters import base
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -642,40 +643,111 @@ def test_delete_all_by_vid_fails_when_arrays_cannot_be_listed(
         server_array_adapter.delete_all_by_vid("v", collection)
 
 
-@pytest.mark.parametrize("bounds", STEP_CASES)
-def test_read_data_with_steps_asks_the_server_for_the_stepped_bounds(
-    stepped_array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None, bounds
-):
-    """The bounds string of the request carries the steps as positions, and the body streams into the stepped shape.
+@pytest.mark.parametrize("index_exp", valid_index_params)
+def test_read_data_asks_the_server_for_the_bounds_as_positions(bounds_array: Array, httpx_mock: HTTPXMock, index_exp):
+    """The bounds string of the request carries the positions of the subset, and the body streams into its shape.
 
-    A timedelta step is converted to positions by the subset, before the adapter: the server never sees a duration.
+    A label, a datetime or a timedelta is converted to positions by the subset, before the adapter: the server
+    never sees them.
     """
-    subset = stepped_array[bounds]
-    shape = subset.shape
-    expected = np.arange(np.prod(shape), dtype=stepped_array.dtype).reshape(shape)
+    subset = bounds_array[index_exp]
+    shape = np.shape(np.empty(subset.shape))
+    expected = np.arange(np.prod(shape), dtype=bounds_array.dtype).reshape(shape)
     httpx_mock.add_response(content=expected.tobytes(), url=re.compile(r".*array.*"))
 
-    result = server_array_adapter.read_data(stepped_array, subset.bounds)
+    result = bounds_array._adapter.read_data(bounds_array, subset.bounds)
 
     request = httpx_mock.get_requests()[-1]
     assert unquote(request.url.path).endswith(f"/subset/{slices_to_str(subset.bounds)}/data")
-    assert result.shape == expected.shape
+    assert np.shape(result) == shape
     assert np.array_equal(result, expected)
 
 
-@pytest.mark.parametrize("bounds", STEP_CASES)
-def test_update_with_steps_sends_the_stepped_region(
-    stepped_array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None, bounds
-):
-    """The bounds string of the request carries the steps as positions, the body is the region of the stepped shape."""
-    subset = stepped_array[bounds]
-    shape = subset.shape
-    data = np.arange(np.prod(shape), dtype=stepped_array.dtype).reshape(shape)
+@pytest.mark.parametrize("index_exp", valid_index_params)
+def test_update_sends_the_region_of_the_bounds(bounds_array: Array, httpx_mock: HTTPXMock, index_exp):
+    """The bounds string of the request carries the positions of the subset, the body is the region of its shape."""
+    subset = bounds_array[index_exp]
+    shape = np.shape(np.empty(subset.shape))
+    data = np.arange(np.prod(shape), dtype=bounds_array.dtype).reshape(shape)
     httpx_mock.add_response(url=re.compile(r".*array.*"))
 
-    server_array_adapter.update(stepped_array, subset.bounds, data)
+    bounds_array._adapter.update(bounds_array, subset.bounds, data)
 
     request = httpx_mock.get_requests()[-1]
     assert request.method == "PUT"
     assert unquote(request.url.path).endswith(f"/subset/{slices_to_str(subset.bounds)}/data")
     assert request.content == data.tobytes()
+
+
+@pytest.mark.parametrize("index_exp", invalid_index_params)
+def test_invalid_bounds_never_reach_the_server(bounds_array: Array, httpx_mock: HTTPXMock, index_exp):
+    """What DEKER refuses as bounds is refused by the subset, before any request."""
+    with pytest.raises((IndexError, TypeError, ValueError, DekerValidationError)):
+        bounds_array[index_exp]
+    assert not [request for request in httpx_mock.get_requests() if "/subset/" in request.url.path]
+
+
+HELD_METHODS = [
+    ("delete", ()),
+    ("read_meta", ()),
+    ("clear", (np.index_exp[:],)),
+    ("update_meta_custom_attributes", ({"foo": "bar"},)),
+    ("read_data", (np.index_exp[:],)),
+    ("update", (np.index_exp[:], np.zeros(shape=(1,), dtype=np.int64))),
+]
+
+
+@pytest.mark.parametrize("lookup", ["by-id", "by-primary"])
+def test_held_array_lookup_raises_the_lock_error_of_deker(
+    lookup: str,
+    server_array_adapter: ServerArrayAdapter,
+    httpx_mock: HTTPXMock,
+    collection: Collection,
+    collection_with_primary_attributes: Collection,
+    primary_attributes: dict,
+):
+    """A 423 on a lookup is DekerLockError with the message of the server: a reader has met a writer."""
+    message = "Array 0f8e is locked for update operation, cannot be read."
+    httpx_mock.add_response(status_code=423, json={"code": 423, "message": message}, url=re.compile(rf".*/{lookup}/.*"))
+    with pytest.raises(DekerLockError, match=re.escape(message)):
+        if lookup == "by-id":
+            server_array_adapter.get_by_id("id", collection, server_array_adapter, None)
+        else:
+            server_array_adapter.get_by_primary_attributes(
+                primary_attributes,
+                collection_with_primary_attributes.array_schema,
+                collection_with_primary_attributes,
+                server_array_adapter,
+                None,
+            )
+
+
+@pytest.mark.parametrize(
+    "body", [pytest.param("held by a proxy", id="text"), pytest.param('{"code": 423}', id="no-message")]
+)
+def test_held_array_without_a_message_raises_the_body_of_the_server(
+    body: str, server_array_adapter: ServerArrayAdapter, httpx_mock: HTTPXMock, array: Array, mock_status: None
+):
+    """A 423 whose body is not the JSON of the server is DekerLockError with the body as it is."""
+    httpx_mock.add_response(status_code=423, text=body, url=re.compile(r".*array.*"))
+    with pytest.raises(DekerLockError, match=re.escape(body)):
+        server_array_adapter.read_meta(array)
+
+
+@pytest.mark.parametrize(("method", "args"), HELD_METHODS)
+def test_held_array_raises_the_lock_error_of_deker(
+    method: str,
+    args: tuple,
+    server_array_adapter: ServerArrayAdapter,
+    httpx_mock: HTTPXMock,
+    array: Array,
+    request: pytest.FixtureRequest,
+    mode: str,
+):
+    """A 423 of the server is DekerLockError with the message of the server, as a held array raises locally."""
+    if mode == CLUSTER_MODE:
+        request.getfixturevalue("mocked_filestatus_check_unmoved")
+    message = "Array 0f8e is locked for update operation, cannot be read."
+    httpx_mock.add_response(status_code=423, json={"code": 423, "message": message}, url=re.compile(r".*array.*"))
+    with pytest.raises(DekerLockError, match=re.escape(message)):
+        getattr(server_array_adapter, method)(array, *args)

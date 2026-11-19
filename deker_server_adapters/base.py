@@ -3,13 +3,14 @@ import warnings
 
 from collections.abc import Generator
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, cast
 
 import numpy as np
 
 from deker import Array, Collection, VArray
 from deker.ABC.base_adapters import IArrayAdapter
 from deker.ctx import CTX
+from deker.errors import DekerLockError, DekerVSubsetError
 from deker.tools.array import get_id
 from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Data, Numeric, Slice
@@ -20,7 +21,16 @@ from httpx import Response, TimeoutException
 from numpy import ndarray
 
 from deker_server_adapters.cluster_config import ClusterConfig, Node
-from deker_server_adapters.consts import NOT_FOUND, READ_CHUNK_SIZE, STATUS_CREATED, STATUS_OK, TIMEOUT, ArrayType
+from deker_server_adapters.consts import (
+    LOCKED,
+    NOT_FOUND,
+    READ_CHUNK_SIZE,
+    STATUS_CREATED,
+    STATUS_OK,
+    TIMEOUT,
+    WRITTEN_PARTLY,
+    ArrayType,
+)
 from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer, FilteringByIdInClusterIsForbidden
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
@@ -31,6 +41,34 @@ if TYPE_CHECKING:
     from deker.ABC.base_schemas import BaseArraysSchema
 
 logger = logging.getLogger(__name__)
+
+
+def server_message(response: Response) -> str:
+    """Get the message of an error response of the server.
+
+    :param response: the error response
+    :returns: the ``message`` of its JSON body, or the whole body when it is not such JSON
+    """
+    try:
+        return str(response.json()["message"])
+    except (JSONDecodeError, KeyError, TypeError):
+        return response.text
+
+
+def raise_for_status(response: Response | None, message: str) -> NoReturn:
+    """Raise the error of deker for a response of the server which is not 200.
+
+    :param response: the response, ``None`` when no node answered
+    :param message: what the adapter was doing, for the generic error
+    :raises DekerLockError: if the server answered 423: the array is held by another process
+    :raises DekerVSubsetError: if the server answered 409: some Arrays of the VArray could not be written
+    :raises DekerServerError: for any other status
+    """
+    if response is not None and response.status_code == LOCKED:
+        raise DekerLockError(server_message(response))
+    if response is not None and response.status_code == WRITTEN_PARTLY:
+        raise DekerVSubsetError(server_message(response), [])
+    raise DekerServerError(response, message)
 
 
 def create_array_from_meta(
@@ -209,6 +247,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
 
         :param array: Instance of (v)array
         :returns: the metadata
+        :raises DekerLockError: if the array is held by another process
         :raises DekerServerError: if the server answered anything but 200
         """
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}"
@@ -222,7 +261,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             response = self.client.get(f"{self.collection_host}{url}")
 
         if response is None or response.status_code != STATUS_OK:
-            raise DekerServerError(response, "Couldn't fetch an array")
+            raise_for_status(response, "Couldn't fetch an array")
 
         return response.json()
 
@@ -235,6 +274,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
 
         :param array: Instance of (v)array
         :param attributes: dict with attributes to update
+        :raises DekerLockError: if the array is held by another process
         :raises DekerServerError: if the server answered anything but 200
         """
         # Writing is always on leader node for non array
@@ -248,12 +288,13 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         else:
             response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
         if not response or response.status_code != STATUS_OK:
-            raise DekerServerError(response, "Couldn't update attributes")
+            raise_for_status(response, "Couldn't update attributes")
 
     def delete(self, array: ArrayT) -> None:
         """Delete array on server.
 
         :param array: Array/Varray to be deleted
+        :raises DekerLockError: if the array is held by another process
         :raises DekerServerError: if the server answered anything but 200
         """
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}"
@@ -264,7 +305,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             response = self.client.delete(f"{self.collection_host}{url}")
 
         if not response or response.status_code != STATUS_OK:
-            raise DekerServerError(response, f"Couldn't delete the {self.type.name}")
+            raise_for_status(response, f"Couldn't delete the {self.type.name}")
 
     @staticmethod
     def _fill_from_response(result: ndarray, response: Response) -> None:
@@ -295,6 +336,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         :param array: From what array we read
         :param bounds: What part of array we read
         :returns: data within the bounds; a scalar for a single cell
+        :raises DekerLockError: if the array is held by a writer
         :raises DekerServerError: if the server answered anything but 200, or sent a body of another size
         :raises DekerTimeoutServer: if the request or the server timed out
         """
@@ -314,7 +356,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             )
 
         if not response or response.status_code not in [STATUS_OK, TIMEOUT]:
-            raise DekerServerError(response, "Couldn't read the array")
+            raise_for_status(response, "Couldn't read the array")
 
         if response.status_code == TIMEOUT:
             raise DekerTimeoutServer(
@@ -341,6 +383,8 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         :param array: Array/Varray that will be updated
         :param bounds: Part of the array to update
         :param body: raw bytes of the region in the array dtype; empty bytes clear the region
+        :raises DekerLockError: if the array is held by another process
+        :raises DekerVSubsetError: if some Arrays of the VArray could not be written, the others are written
         :raises DekerServerError: if the server answered anything but 200
         :raises DekerTimeoutServer: if the request or the server timed out
         """
@@ -361,7 +405,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             )
 
         if not response or response.status_code not in [STATUS_OK, TIMEOUT]:
-            raise DekerServerError(response, "Couldn't update array")
+            raise_for_status(response, "Couldn't update array")
 
         if response.status_code == TIMEOUT:
             raise DekerTimeoutServer(
@@ -422,6 +466,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         :param primary_attributes: Key attributes
         :param schema: Array or Varray schema
         :returns: the response with the metadata of the array, or ``None`` if the server has no such array
+        :raises DekerLockError: if the array is held by a writer
         :raises DekerServerError: if the server answered anything but 200 or 404
         """
         attrs = []
@@ -443,7 +488,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
                 f"{self.collection_host}{url}",
             )
         if not response or response.status_code not in [STATUS_OK, NOT_FOUND]:
-            raise DekerServerError(response, "Couldn't fetch array")
+            raise_for_status(response, "Couldn't fetch array")
         if response.status_code == NOT_FOUND:
             return None
         return response
@@ -514,6 +559,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         :returns: the array, or ``None`` if the server has none with the id
         :raises FilteringByIdInClusterIsForbidden: in cluster mode for a schema with primary attributes: the node
           of an array is chosen by them, not by the id
+        :raises DekerLockError: if the array is held by a writer
         :raises DekerServerError: if the server answered anything but 200 or 404
         """
         url = f"{self.path_stripped}/{self.type.name}/by-id/{id_}"
@@ -538,7 +584,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             )
 
         if not response or response.status_code not in [STATUS_OK, NOT_FOUND]:
-            raise DekerServerError(response, "Couldn't fetch array")
+            raise_for_status(response, "Couldn't fetch array")
 
         if response.status_code == NOT_FOUND:
             return None
