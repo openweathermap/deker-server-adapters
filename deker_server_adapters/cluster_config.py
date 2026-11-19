@@ -145,7 +145,8 @@ def request_and_apply_config(ctx: CTX) -> None:
     """Ping the server (every server of a cluster uri), check it answers and apply the cluster config it returns.
 
     :param ctx: Application context
-    :raises DekerServerError: if no server answered the ping with 200; the http client is closed then
+    :raises DekerServerError: if no server answered the ping, or the answer was not 200; the error names every server
+        that did not answer with the reason; the http client is closed then
     :raises DekerClusterError: if the config of a cluster uri is not a cluster config, or the config is not a json
     """
     httpx_client = ctx.extra["httpx_client"]
@@ -153,13 +154,16 @@ def request_and_apply_config(ctx: CTX) -> None:
 
     # If we do healthcheck in cluster
     nodes = [*ctx.uri.servers] if ctx.uri.servers else [ctx.uri.raw_url]
-    response = make_request(url=url, nodes=nodes, client=httpx_client)
+    failures: list[str] = []
+    response = make_request(url=url, nodes=nodes, client=httpx_client, failures=failures)
 
-    if not response or response.status_code != STATUS_OK:
+    if response is None:
+        httpx_client.close()
+        raise DekerServerError(message=f"No DEKER server answered the healthcheck: {'; '.join(failures)}")
+    if response.status_code != STATUS_OK:
         httpx_client.close()
         raise DekerServerError(
-            response,
-            "Healthcheck failed. Deker client will be closed.",
+            response, f"The DEKER server at {response.url} answered the healthcheck with status {response.status_code}."
         )
 
     try:

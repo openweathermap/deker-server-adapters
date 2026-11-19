@@ -64,7 +64,14 @@ class AdaptersFactory(BaseAdaptersFactory):
         super().__init__(copied_ctx, uri)
 
     def close(self) -> None:
-        """Shutdown executor and httpx client; the factory's own context copy is marked closed."""
+        """Shutdown executor and httpx client; the factory's own context copy is marked closed.
+
+        A factory whose server did not answer the healthcheck is dropped before its base is initialised: it has
+        the http client to close and nothing else.
+        """
+        if not hasattr(self, "ctx"):
+            self.httpx_client.close()
+            return
         self.ctx.is_closed = True
         self.httpx_client.close()
         super().close()

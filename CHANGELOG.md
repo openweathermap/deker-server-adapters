@@ -37,7 +37,10 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
 - The slice of a request is serialised by `deker_tools.slices.slices_to_str` instead of a private
   helper.
 - The hash of a key is computed from the bytes directly, with the same result; a failed request is
-  logged once instead of being printed to stderr and logged.
+  logged once, in one line with the node and the reason, instead of being printed to stderr and
+  logged; its traceback is logged at the DEBUG level only.
+- A failed healthcheck names the servers that did not answer and the reason for each one, or the
+  server and the status it answered with, instead of a chain of tracebacks.
 - Clear error messages for a server response that is a dict and for an unread stream; an unused
   node traversal method is removed; the test of the client iteration that was marked as expected
   to fail runs again.

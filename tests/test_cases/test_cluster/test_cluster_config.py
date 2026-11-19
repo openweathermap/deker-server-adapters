@@ -1,5 +1,6 @@
 import re
 
+import httpx
 import pytest
 
 from deker.ctx import CTX
@@ -39,8 +40,22 @@ def test_cluster_uri_requires_cluster_mode(ctx: CTX):
 
 def test_failed_healthcheck_closes_the_client(ctx: CTX, httpx_mock: HTTPXMock):
     httpx_mock.add_response(url=re.compile(r".*/v1/ping.*"), status_code=500)
-    with pytest.raises(DekerServerError, match="Healthcheck failed"):
+    with pytest.raises(DekerServerError, match="answered the healthcheck with status 500"):
         request_and_apply_config(ctx)
+    assert ctx.extra["httpx_client"].is_closed
+
+
+def test_unreachable_servers_are_named_with_the_reason(ctx: CTX, httpx_mock: HTTPXMock):
+    """The error says which servers were asked and why each one did not answer: no traceback is needed to see it."""
+    httpx_mock.add_exception(
+        httpx.ConnectError("[Errno -2] Name or service not known"), url=re.compile(r".*/v1/ping.*"), is_reusable=True
+    )
+    with pytest.raises(DekerServerError) as info:
+        request_and_apply_config(ctx)
+    message = str(info.value)
+    assert message.startswith("No DEKER server answered the healthcheck")
+    for server in ctx.uri.servers:
+        assert f"{server}: [Errno -2] Name or service not known" in message
     assert ctx.extra["httpx_client"].is_closed
 
 
