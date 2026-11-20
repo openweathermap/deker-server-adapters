@@ -58,6 +58,16 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
   peer` errors between requests of a long session. The limits of the client can still be set
   through `httpx_conf`.
 
+- The status of an Array during a rebalancing is read from
+  `/collection/{name}/array/by-id/{id}/status` of the data node, a read under the `read` scope: the
+  `cluster` scope of the user is not needed for writes during a rebalancing any more.
+
+- A `503` of the server is `DekerClusterError` with the phrase of the server and `retry_after`, the
+  seconds of its `Retry-After` header (`None` when the server sent none); the message is logged with
+  the node. The adapters never retry a node on their own; a read of the metadata still falls over to
+  the other nodes of the cluster, as before. The collection adapter raises the same errors as the
+  array adapters for 423, 409 and 503.
+
 ### Fixed
 
 - A write of a VArray (creation, custom attributes, deletion) after the leader of the cluster changed

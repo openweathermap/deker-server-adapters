@@ -8,7 +8,7 @@ from deker.errors import DekerCollectionAlreadyExistsError, DekerCollectionNotEx
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
-from deker_server_adapters.errors import DekerServerError
+from deker_server_adapters.errors import DekerClusterError, DekerServerError
 from deker_server_adapters.factory import AdaptersFactory
 
 
@@ -128,3 +128,32 @@ def test_client_iter_fails_when_collections_cannot_be_listed(
     httpx_mock.add_response(url=re.compile(r".*/v1/collections$"), status_code=500)
     with pytest.raises(DekerServerError, match="list of collections"):
         list(collection_adapter)
+
+
+@pytest.mark.parametrize(
+    ("method", "args", "http_method"),
+    [
+        pytest.param("create", (), "POST", id="create"),
+        pytest.param("delete", (), "DELETE", id="delete"),
+    ],
+)
+def test_unavailable_raises_the_cluster_error_with_the_delay(
+    method: str,
+    args: tuple,
+    http_method: str,
+    collection_adapter: ServerCollectionAdapter,
+    collection: Collection,
+    httpx_mock: HTTPXMock,
+):
+    """A 503 on a collection write is DekerClusterError with the phrase of the server and the seconds to wait."""
+    message = "Cluster has no leader at the moment, try again later"
+    httpx_mock.add_response(
+        status_code=503,
+        method=http_method,
+        json={"code": 503, "message": message, "class": "ClusterUnavailableError"},
+        headers={"Retry-After": "1"},
+        url=re.compile(r".*/v1/collection.*"),
+    )
+    with pytest.raises(DekerClusterError, match=re.escape(message)) as info:
+        getattr(collection_adapter, method)(collection, *args)
+    assert info.value.retry_after == 1

@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import warnings
 
@@ -18,7 +19,7 @@ from tests.conftest import CLUSTER_MODE
 from tests.params.slices import invalid_index_params, valid_index_params
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
-from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer
+from deker_server_adapters.errors import DekerClusterError, DekerServerError, DekerTimeoutServer
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 
@@ -365,3 +366,45 @@ def test_written_partly_raises_the_group_error_of_deker(
     with pytest.raises(DekerVSubsetError, match=re.escape(message)) as info:
         server_varray_adapter.update(varray, np.index_exp[:], np.zeros(shape=(1,), dtype=np.int64))
     assert info.value.exceptions == []
+
+
+UNAVAILABLE_ANSWERS = [
+    pytest.param(
+        "Cluster has no leader at the moment, try again later", "ClusterUnavailableError", "1", 1, id="no-leader"
+    ),
+    pytest.param("Cluster is rebalancing, try again later", "ClusterRebalancingError", "10", 10, id="rebalancing"),
+    pytest.param("Node is out of sync and restarting, use another node", "RAFTNodeDesyncError", "5", 5, id="desync"),
+    pytest.param("Service unavailable", "", None, None, id="a-proxy-without-the-header"),
+]
+
+
+@pytest.mark.parametrize(("method", "args"), HELD_METHODS)
+@pytest.mark.parametrize(("message", "class_", "header", "retry_after"), UNAVAILABLE_ANSWERS)
+def test_unavailable_raises_the_cluster_error_with_the_delay(
+    method: str,
+    args: tuple,
+    message: str,
+    class_: str,
+    header: str | None,
+    retry_after: int | None,
+    server_varray_adapter: ServerVarrayAdapter,
+    httpx_mock: HTTPXMock,
+    varray: VArray,
+    request: pytest.FixtureRequest,
+    mode: str,
+    caplog: pytest.LogCaptureFixture,
+):
+    """A 503 is DekerClusterError with the phrase of the server and the seconds of Retry-After; nothing is retried."""
+    if mode == CLUSTER_MODE and method in STATUS_CHECKING_METHODS:
+        request.getfixturevalue("mocked_filestatus_check_unmoved")
+    headers = {"Retry-After": header} if header else {}
+    body = {"code": 503, "message": message, "class": class_} if class_ else {"message": message}
+    httpx_mock.add_response(status_code=503, json=body, headers=headers, url=re.compile(r".*varray.*"))
+    with caplog.at_level(logging.ERROR, logger="deker_server_adapters.base"):
+        with pytest.raises(DekerClusterError, match=re.escape(message)) as info:
+            getattr(server_varray_adapter, method)(varray, *args)
+    assert info.value.retry_after == retry_after
+    # a read of the metadata falls over to the other nodes, as before; no node is asked twice
+    nodes_asked = [str(r.url.netloc) for r in httpx_mock.get_requests() if "varray" in str(r.url)]
+    assert len(nodes_asked) == len(set(nodes_asked))
+    assert message in caplog.text

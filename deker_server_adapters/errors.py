@@ -77,7 +77,22 @@ class DekerDataPointsLimitError(DekerBaseRateLimitError):
 
 
 class DekerClusterError(DekerServerError):
-    """If there is problem with cluster."""
+    """The cluster or a node cannot take the request at the moment: a 503 of the server, or a config it cannot use.
+
+    ``retry_after`` holds the seconds the server asked to wait before a retry (its ``Retry-After`` header),
+    ``None`` when it said nothing. The adapters never retry on their own: the caller decides.
+    """
+
+    retry_after: int | None
+
+    def __init__(
+        self,
+        response: Response | dict | None = None,
+        message: str | None = None,
+        retry_after: int | None = None,
+    ) -> None:
+        self.retry_after = retry_after
+        super().__init__(response, message)
 
 
 class HealthcheckError(DekerServerError):

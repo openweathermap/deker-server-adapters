@@ -25,13 +25,20 @@ from deker_server_adapters.consts import (
     LOCKED,
     NOT_FOUND,
     READ_CHUNK_SIZE,
+    RETRY_AFTER_HEADER,
+    SERVICE_UNAVAILABLE,
     STATUS_CREATED,
     STATUS_OK,
     TIMEOUT,
     WRITTEN_PARTLY,
     ArrayType,
 )
-from deker_server_adapters.errors import DekerServerError, DekerTimeoutServer, FilteringByIdInClusterIsForbidden
+from deker_server_adapters.errors import (
+    DekerClusterError,
+    DekerServerError,
+    DekerTimeoutServer,
+    FilteringByIdInClusterIsForbidden,
+)
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils.requests import make_request, request_in_cluster
@@ -55,6 +62,18 @@ def server_message(response: Response) -> str:
         return response.text
 
 
+def retry_after_of(response: Response) -> int | None:
+    """Read the seconds of the Retry-After header of a response.
+
+    :param response: the response
+    :returns: the seconds, ``None`` when the header is absent or not a number
+    """
+    value = response.headers.get(RETRY_AFTER_HEADER)
+    if value is None or not value.strip().isdigit():
+        return None
+    return int(value)
+
+
 def raise_for_status(response: Response | None, message: str) -> NoReturn:
     """Raise the error of deker for a response of the server which is not 200.
 
@@ -62,12 +81,23 @@ def raise_for_status(response: Response | None, message: str) -> NoReturn:
     :param message: what the adapter was doing, for the generic error
     :raises DekerLockError: if the server answered 423: the array is held by another process
     :raises DekerVSubsetError: if the server answered 409: some Arrays of the VArray could not be written
+    :raises DekerClusterError: if the server answered 503: it cannot take the request now, with the seconds to wait
     :raises DekerServerError: for any other status
     """
     if response is not None and response.status_code == LOCKED:
         raise DekerLockError(server_message(response))
     if response is not None and response.status_code == WRITTEN_PARTLY:
         raise DekerVSubsetError(server_message(response), [])
+    if response is not None and response.status_code == SERVICE_UNAVAILABLE:
+        retry_after = retry_after_of(response)
+        logger.error(
+            "%s: %s answered 503 %s, retry after %s s",
+            message,
+            response.url.host,
+            server_message(response),
+            retry_after,
+        )
+        raise DekerClusterError(response, message, retry_after=retry_after)
     raise DekerServerError(response, message)
 
 

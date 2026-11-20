@@ -13,6 +13,8 @@ NON_LEADER_WRITE = 421
 PRECONDITION_FAILED = 412  # the cluster configuration of the client is stale
 LOCKED = 423  # the array is held by another process
 WRITTEN_PARTLY = 409  # some Arrays of a VArray could not be written
+SERVICE_UNAVAILABLE = 503  # the cluster has no leader, is rebalancing, the node is out of sync, or the server limit
+RETRY_AFTER_HEADER = "Retry-After"
 
 # Name of the parameter in the server response
 COLLECTION_NAME_PARAM = "collection_name"

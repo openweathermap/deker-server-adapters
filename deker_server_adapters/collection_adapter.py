@@ -6,7 +6,7 @@ from deker.errors import DekerCollectionAlreadyExistsError, DekerCollectionNotEx
 from deker.tools.decorators import check_ctx_state
 from deker.uri import Uri
 
-from deker_server_adapters.base import BaseServerAdapterMixin
+from deker_server_adapters.base import BaseServerAdapterMixin, raise_for_status
 from deker_server_adapters.consts import BAD_REQUEST, COLLECTION_NAME_PARAM, NOT_FOUND, STATUS_CREATED, STATUS_OK
 from deker_server_adapters.errors import DekerServerError
 from deker_server_adapters.httpx_client import HttpxClient
@@ -36,6 +36,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
 
         :param collection: Deker's collection instance
         :raises DekerCollectionNotExistsError: if the server answered 404
+        :raises DekerClusterError: if the server answered 503: it cannot take the request now
         :raises DekerServerError: if the server answered anything else but 200
         """
         response = self.client.delete(
@@ -48,7 +49,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         if response.status_code == NOT_FOUND:
             raise DekerCollectionNotExistsError
 
-        raise DekerServerError(response, "Collection wasn't deleted")
+        raise_for_status(response, "Collection wasn't deleted")
 
     @check_ctx_state
     def create(self, collection: "Collection") -> None:
@@ -56,6 +57,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
 
         :param collection: Deker's collection instance
         :raises DekerCollectionAlreadyExistsError: if the server rejected the name as taken
+        :raises DekerClusterError: if the server answered 503: it cannot take the request now
         :raises DekerServerError: if the server answered anything else but 201
         """
         data = collection.as_dict
@@ -66,7 +68,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         if response.status_code == BAD_REQUEST and COLLECTION_NAME_PARAM in response.json().get("parameters", []):
             raise DekerCollectionAlreadyExistsError
 
-        raise DekerServerError(response, "Collection wasn't created")
+        raise_for_status(response, "Collection wasn't created")
 
     @check_ctx_state
     def read(self, name: str) -> dict:
@@ -89,7 +91,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         if response and response.status_code == NOT_FOUND:
             raise DekerCollectionNotExistsError
 
-        raise DekerServerError(response, f"Couldn't get the collection {name=}")
+        raise_for_status(response, f"Couldn't get the collection {name=}")
 
     @check_ctx_state
     def clear(self, collection: "Collection") -> None:
