@@ -142,11 +142,6 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         return f"{node.rstrip('/')}{self.collection_path.path}"
 
     @property
-    def collection_host(self) -> str:
-        """Get the scheme and the host of the collection uri: ``http://host:port``."""
-        return f"{self.collection_path.scheme}{Uri.__annotations__['netloc']['separator']}{self.collection_path.netloc}"
-
-    @property
     def path_stripped(self) -> str:
         """Get the path of the collection uri without the trailing slash."""
         return self.collection_path.path.rstrip("/")
@@ -164,7 +159,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         if self.type == ArrayType.array and self.client.cluster_mode:
             response = request_in_cluster(url, array, self.ctx, method="POST", request_kwargs=request_kwargs)
         else:
-            response = self.client.post(f"{self.collection_host}{url}", **request_kwargs)
+            response = self.client.post(url, **request_kwargs)
 
         if not response or response.status_code != STATUS_CREATED:
             raise DekerServerError(response, f"Couldn't create the {self.type.name}")
@@ -258,7 +253,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         elif self.client.cluster_mode:
             response = request_in_cluster(url, array, self.ctx, True)
         else:
-            response = self.client.get(f"{self.collection_host}{url}")
+            response = self.client.get(url)
 
         if response is None or response.status_code != STATUS_OK:
             raise_for_status(response, "Couldn't fetch an array")
@@ -286,7 +281,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
                 url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
             )
         else:
-            response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
+            response = self.client.put(url, **request_kwargs)
         if not response or response.status_code != STATUS_OK:
             raise_for_status(response, "Couldn't update attributes")
 
@@ -302,7 +297,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         if self.client.cluster_mode and self.type == ArrayType.array:
             response = request_in_cluster(url, array, self.ctx, should_check_status=True, method="DELETE")
         else:
-            response = self.client.delete(f"{self.collection_host}{url}")
+            response = self.client.delete(url)
 
         if not response or response.status_code != STATUS_OK:
             raise_for_status(response, f"Couldn't delete the {self.type.name}")
@@ -349,7 +344,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
                     url, array, self.ctx, should_check_status=True, request_kwargs={"headers": headers}, stream=True
                 )
             else:
-                response = self.client.request("GET", f"{self.collection_host}{url}", headers=headers, stream=True)
+                response = self.client.request("GET", url, headers=headers, stream=True)
         except TimeoutException:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} read {array}",
@@ -398,7 +393,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
                     url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
                 )
             else:
-                response = self.client.put(f"{self.collection_host}{url}", **request_kwargs)
+                response = self.client.put(url, **request_kwargs)
         except TimeoutException:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} update {array}",
@@ -485,7 +480,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             response = request_in_cluster(url, array={"primary_attributes": primary_attributes}, ctx=self.ctx)
         else:
             response = self.client.get(
-                f"{self.collection_host}{url}",
+                url,
             )
         if not response or response.status_code not in [STATUS_OK, NOT_FOUND]:
             raise_for_status(response, "Couldn't fetch array")
@@ -580,7 +575,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             )
         else:
             response = self.client.get(
-                f"{self.collection_host}{url}",
+                url,
             )
 
         if not response or response.status_code not in [STATUS_OK, NOT_FOUND]:

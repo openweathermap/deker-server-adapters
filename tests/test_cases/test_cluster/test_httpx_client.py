@@ -44,15 +44,11 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
         json=new_cluster_config,
         url=re.compile(f"{ctx.extra['cluster_config'].leader.url.raw_url}"),
     )
-    # Ok
-    httpx_mock.add_response(
-        status_code=200,
-        method="PUT",
-        json=new_cluster_config,
-        url=re.compile(f"{ctx.extra['cluster_config'].leader.url.raw_url}"),
-    )
+    # Ok, on the new leader only
+    httpx_mock.add_response(status_code=200, method="PUT", json={}, url=re.compile(r"http://newhost\.owm\.io/.*"))
     server_varray_adapter.update_meta_custom_attributes(varray, {})
-    assert server_varray_adapter.ctx.extra["cluster_config"]
+    assert server_varray_adapter.ctx.extra["cluster_config"].leader.host == "newhost.owm.io"
+    assert str(server_varray_adapter.client.base_url) == "http://newhost.owm.io"
 
 
 def test_hash_conflict_without_last_modified_header_keeps_the_old_one(
