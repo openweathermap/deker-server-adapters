@@ -26,6 +26,9 @@ def test_moved_array_is_requested_from_the_target_node(
     assert response is not None
     assert response.url.port == 8099
     assert response.json() == {"moved": True}
+    status_request = httpx_mock.get_request(url=re.compile(r".*/status$"))
+    assert status_request is not None
+    assert status_request.url.path == f"/v1/collection/{array.collection}/array/by-id/{array.id}/status"
 
 
 @pytest.mark.parametrize(

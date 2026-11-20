@@ -89,6 +89,9 @@ def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAd
     def limited_mock_response(request, extensions, request_counter, mocked_ping, data) -> httpx.Response:
         url_to_mock = re.compile(r".*/v1/collection/.*/array/by-id/.*")
 
+        if str(request.url).endswith("/status"):  # the status lives under the same by-id path now
+            return httpx.Response(text=Status.UNMOVED.value, status_code=200)
+
         if url_to_mock.search(str(request.url)):
             request_counter.count += 1
 
@@ -96,9 +99,6 @@ def test_hash_updated(httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAd
                 return httpx.Response(412, json=mocked_ping, headers={LAST_MODIFIED_HEADER: "new-hash"})
             else:
                 return httpx.Response(200, json=data)
-
-        elif "status" in str(request.url):
-            return httpx.Response(text=Status.UNMOVED.value, status_code=200)
 
         return httpx.Response(404, json={"error": "Not found"})
 

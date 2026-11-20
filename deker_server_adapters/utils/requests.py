@@ -128,7 +128,7 @@ def check_status(ctx: CTX, array: BaseArray) -> Status:
     client: "HttpxClient" = ctx.extra["httpx_client"]
     node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
     id_, _ = get_id_and_primary_attributes(array)
-    url = node.url / f"{get_api_version()}/cluster/collection/{array.collection}/array/by-id/{id_}/status"
+    url = node.url / f"{get_api_version()}/collection/{array.collection}/array/by-id/{id_}/status"
     response = client.get(url.raw_url)
     if not response or response.status_code != STATUS_OK:
         raise DekerServerError(response, "File status check failed")
