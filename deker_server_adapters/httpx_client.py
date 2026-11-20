@@ -1,8 +1,20 @@
+from logging import getLogger
 from typing import Any
 
 from deker.ctx import CTX
 from deker.errors import DekerMemoryError
-from httpx import Client, Response
+from httpx import (
+    USE_CLIENT_DEFAULT,
+    Client,
+    ConnectError,
+    ReadError,
+    RemoteProtocolError,
+    Request,
+    Response,
+    WriteError,
+)
+from httpx._client import UseClientDefault
+from httpx._types import AuthTypes
 
 from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.consts import (
@@ -22,6 +34,13 @@ from deker_server_adapters.errors import (
     DekerRateLimitError,
     InvalidConfigHash,
 )
+
+logger = getLogger(__name__)
+
+# a connection the server closed while the client kept it: the request is sent once more over a new one
+DROPPED_CONNECTION_ERRORS = (ConnectError, ReadError, WriteError, RemoteProtocolError)
+# the methods safe to repeat: the server ends up in the same state whether it got the request once or twice
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "PUT", "DELETE"})
 
 
 def rate_limit_err(response: Response, message: str, class_: type[DekerBaseRateLimitError]) -> None:
@@ -56,23 +75,54 @@ class HttpxClient(Client):
     ctx: CTX
     cluster_mode: bool = False
 
+    def _send_built(
+        self,
+        request: Request,
+        stream: bool,
+        auth: AuthTypes | UseClientDefault | None,
+        follow_redirects: bool | UseClientDefault,
+    ) -> Response:
+        """Send a built request; the body of a failed response is read even when streaming was asked.
+
+        :param request: the request
+        :param stream: do not read the body of a ``200`` response
+        :param auth: the auth of this request, the client's by default
+        :param follow_redirects: whether to follow redirects, the client's choice by default
+        :returns: server response
+        """
+        response = self.send(request, stream=stream, auth=auth, follow_redirects=follow_redirects)
+        if stream and response.status_code != STATUS_OK:
+            response.read()
+        return response
+
     def _send(self, *args: Any, stream: bool, **kwargs: Any) -> Response:
         r"""Send a request, leaving the body of a successful response unread when ``stream`` is set.
 
         Any other response is read in full at once, so error handling and node fallback
-        never meet an unread body.
+        never meet an unread body. An idempotent request whose connection the server dropped
+        is sent once more over a new connection.
 
         :param \*args: arguments to request
         :param stream: do not read the body of a ``200`` response
         :param \**kwargs: keyword arguments to request
         :returns: server response
         """
-        if not stream:
-            return super().request(*args, **kwargs)
-        response = self.send(self.build_request(*args, **kwargs), stream=True)
-        if response.status_code != STATUS_OK:
-            response.read()
-        return response
+        auth = kwargs.pop("auth", USE_CLIENT_DEFAULT)
+        follow_redirects = kwargs.pop("follow_redirects", USE_CLIENT_DEFAULT)
+        request = self.build_request(*args, **kwargs)
+        try:
+            return self._send_built(request, stream, auth, follow_redirects)
+        except DROPPED_CONNECTION_ERRORS as e:
+            if request.method not in IDEMPOTENT_METHODS:
+                raise
+            logger.warning(
+                "Connection to %s dropped on %s %s, the request is repeated once: %s",
+                request.url.host,
+                request.method,
+                request.url.path,
+                e,
+            )
+            return self._send_built(request, stream, auth, follow_redirects)
 
     def request(self, *args: Any, retry_on_hash_failure: bool = False, stream: bool = False, **kwargs: Any) -> Response:
         r"""Override httpx method to handle rate errors.

@@ -4,10 +4,12 @@ from deker.ABC.base_factory import BaseAdaptersFactory
 from deker.ctx import CTX
 from deker.tools.decorators import check_ctx_state
 from deker.uri import Uri
+from httpx import Limits
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.cluster_config import request_and_apply_config
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
+from deker_server_adapters.consts import KEEPALIVE_EXPIRY, MAX_CONNECTIONS, MAX_KEEPALIVE_CONNECTIONS
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
@@ -35,6 +37,11 @@ class AdaptersFactory(BaseAdaptersFactory):
             "verify": True,
             "http2": False,
             "timeout": None,
+            "limits": Limits(
+                max_connections=MAX_CONNECTIONS,
+                max_keepalive_connections=MAX_KEEPALIVE_CONNECTIONS,
+                keepalive_expiry=KEEPALIVE_EXPIRY,
+            ),
         }
 
         # If Uri contains auth params, remember them

@@ -52,6 +52,17 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
 - Clear error messages for a server response that is a dict and for an unread stream; an unused
   node traversal method is removed; the test of the client iteration that was marked as expected
   to fail runs again.
+- An idle connection of the http client is dropped after 60 seconds, before the server drops it
+  (75 seconds), and an idempotent request (GET, HEAD, PUT, DELETE) whose connection the server
+  closed meanwhile is sent once more over a new connection. This closes the `Connection reset by
+  peer` errors between requests of a long session. The limits of the client can still be set
+  through `httpx_conf`.
+
+### Fixed
+
+- A write of a VArray (creation, custom attributes, deletion) after the leader of the cluster changed
+  is repeated on the new leader; before, the retry went to the old leader and failed with the same
+  421 answer.
 
 ### Internals and tooling
 
