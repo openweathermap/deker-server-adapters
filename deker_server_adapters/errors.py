@@ -1,6 +1,7 @@
 from json import JSONDecodeError
 
 from deker.errors import DekerBaseApplicationError
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 from httpx import Response, ResponseNotRead
 
 
@@ -12,7 +13,7 @@ class DekerServerError(DekerBaseApplicationError):
     def _make_response_from_response(
         self,
         response: Response | dict,
-        message: str | None = None,
+        message: str,
     ) -> str:
         """Make an Exception message based on response and provided text.
 
@@ -34,18 +35,22 @@ class DekerServerError(DekerBaseApplicationError):
             except ResponseNotRead:
                 server_message = "<streamed body, not read>"
 
-        message = message or ""
         return f"{message} \nResponse: {status=}, message={server_message}"
 
     def __init__(
         self,
-        response: Response | dict | None = None,
-        message: str | None = None,
+        response: Response | dict | SentinelType = Sentinel,
+        message: str = "",
     ) -> None:
-        if response:
-            self.message = self._make_response_from_response(response, message)
+        """Build the error from the response of the server and what the adapter was doing.
+
+        :param response: the response of the server, or the config dict it sent; not given - no server answered
+        :param message: what the adapter was doing
+        """
+        if is_sentinel(response):
+            self.message = message
         else:
-            self.message = message if message else ""
+            self.message = self._make_response_from_response(response, message)
         super().__init__(self.message)
 
 
@@ -87,10 +92,16 @@ class DekerClusterError(DekerServerError):
 
     def __init__(
         self,
-        response: Response | dict | None = None,
-        message: str | None = None,
+        response: Response | dict | SentinelType = Sentinel,
+        message: str = "",
         retry_after: int | None = None,
     ) -> None:
+        """Build the error from the response of the server and the seconds it asked to wait.
+
+        :param response: the response of the server, or the config dict it sent; not given - no server answered
+        :param message: what the adapter was doing
+        :param retry_after: seconds of the ``Retry-After`` header, ``None`` when the server said nothing
+        """
         self.retry_after = retry_after
         super().__init__(response, message)
 

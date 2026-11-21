@@ -5,6 +5,8 @@ from bisect import bisect
 from collections.abc import Callable
 from typing import Generic, TypeVar
 
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
+
 from deker_server_adapters.errors import HashRingError
 
 md5_constructor = hashlib.md5
@@ -54,7 +56,11 @@ class HashRing(Generic[NodeT]):
 
         self._sorted_keys.sort()
 
-    def __init__(self, nodes: list[NodeT] | tuple[NodeT, ...] | set[NodeT], weights: dict[NodeT, int] | None = None):
+    def __init__(
+        self,
+        nodes: list[NodeT] | tuple[NodeT, ...] | set[NodeT],
+        weights: dict[NodeT, int] | SentinelType = Sentinel,
+    ):
         """Generate instance of hash ring with given nodes.
 
         :param nodes: is a list of objects that have a proper __str__ representation.
@@ -65,7 +71,7 @@ class HashRing(Generic[NodeT]):
         self._sorted_keys: list[int] = []
 
         self.nodes: list[NodeT] | tuple[NodeT, ...] | set[NodeT] = nodes
-        self.weights: dict[NodeT, int] = weights or {}
+        self.weights: dict[NodeT, int] = {} if is_sentinel(weights) else weights
 
         self._generate_circle()
 

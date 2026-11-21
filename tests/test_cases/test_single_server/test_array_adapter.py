@@ -4,8 +4,10 @@ import re
 import numpy as np
 import pytest
 
+from cantok import DefaultToken
 from deker.arrays import Array
 from deker.ctx import CTX
+from deker_tools.typings import Sentinel
 from httpx import ReadTimeout
 from pytest_httpx import HTTPXMock
 
@@ -47,10 +49,12 @@ def test_read_data_httpx_timeout(array: Array, httpx_mock: HTTPXMock, server_arr
     """In single mode an httpx timeout is not swallowed by node fallback and becomes DekerTimeoutServer."""
     httpx_mock.add_exception(ReadTimeout("slow server"), url=re.compile(r".*array.*"))
     with pytest.raises(DekerTimeoutServer):
-        server_array_adapter.read_data(array, np.index_exp[:])
+        server_array_adapter.read_data(array, np.index_exp[:], timeout=Sentinel, token=DefaultToken())
 
 
 def test_update_httpx_timeout(array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter):
     httpx_mock.add_exception(ReadTimeout("slow server"), url=re.compile(r".*array.*"))
     with pytest.raises(DekerTimeoutServer):
-        server_array_adapter.update(array, np.index_exp[:], np.zeros(shape=(1,), dtype=array.dtype))
+        server_array_adapter.update(
+            array, np.index_exp[:], np.zeros(shape=(1,), dtype=array.dtype), timeout=Sentinel, token=DefaultToken()
+        )

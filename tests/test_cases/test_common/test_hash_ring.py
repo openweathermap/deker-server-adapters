@@ -26,3 +26,10 @@ def test_weights_change_the_share_of_points():
     points = Counter(ring.ring.values())
     assert points["a"] > points["b"]
     assert ring.weights == {"a": 3, "b": 1}
+
+
+def test_nodes_without_weights_are_equal():
+    ring = HashRing(["a", "b"])
+    points = Counter(ring.ring.values())
+    assert points["a"] == points["b"]
+    assert ring.weights == {}

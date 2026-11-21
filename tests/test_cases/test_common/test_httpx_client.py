@@ -161,3 +161,33 @@ def test_a_post_over_a_stale_kept_alive_connection_fails_against_a_real_socket(d
         with pytest.raises(httpx.RemoteProtocolError):
             client.post("/v1/collections", json={})
     assert DroppingHandler.requests == [("GET", 1), ("POST", 2)]
+
+
+@pytest.mark.parametrize(
+    ("headers", "warning"),
+    [
+        pytest.param(
+            {"X-Deker-Timeout": "300", "X-Deker-Timeout-Capped": "1000"},
+            "The server cut the timeout of GET /v1/collection/test/arrays down: 1000 s asked, 300 s applied",
+            id="capped",
+        ),
+        pytest.param({"X-Deker-Timeout": "1000"}, None, id="applied-as-asked"),
+        pytest.param({}, None, id="a-route-without-a-timeout"),
+    ],
+)
+def test_a_timeout_cut_down_by_the_server_is_a_warning(
+    headers: dict,
+    warning: str | None,
+    httpx_mock: HTTPXMock,
+    ctx: CTX,
+    caplog: pytest.LogCaptureFixture,
+):
+    client: HttpxClient = ctx.extra["httpx_client"]
+    httpx_mock.add_response(url=re.compile(r".*/v1/collection/test/arrays.*"), headers=headers, json=[])
+
+    with caplog.at_level(logging.WARNING, logger="deker_server_adapters.httpx_client"):
+        response = client.request("GET", "/v1/collection/test/arrays", params={"timeout": "1000"})
+
+    assert response.status_code == 200
+    warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+    assert warnings == ([warning] if warning else [])

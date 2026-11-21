@@ -1,12 +1,15 @@
 from collections.abc import Generator
 
+from cantok import AbstractToken, DefaultToken
 from deker import Collection
 from deker.ABC import BaseCollectionAdapter
 from deker.errors import DekerCollectionAlreadyExistsError, DekerCollectionNotExistsError
 from deker.tools.decorators import check_ctx_state
 from deker.uri import Uri
+from deker_tools.cancel import check, mark_started
+from deker_tools.typings import Sentinel, SentinelType
 
-from deker_server_adapters.base import BaseServerAdapterMixin, raise_for_status
+from deker_server_adapters.base import BaseServerAdapterMixin, raise_for_status, timeout_kwargs
 from deker_server_adapters.consts import BAD_REQUEST, COLLECTION_NAME_PARAM, NOT_FOUND, STATUS_CREATED, STATUS_OK
 from deker_server_adapters.errors import DekerServerError
 from deker_server_adapters.httpx_client import HttpxClient
@@ -31,17 +34,22 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         return f"{get_api_version()}/collections"
 
     @check_ctx_state
-    def delete(self, collection: "Collection") -> None:
+    def delete(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Delete collection from server.
 
         :param collection: Deker's collection instance
+        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerCollectionNotExistsError: if the server answered 404
         :raises DekerClusterError: if the server answered 503: it cannot take the request now
         :raises DekerServerError: if the server answered anything else but 200
         """
-        response = self.client.delete(
-            f"/{self.collection_url_prefix}/{collection.name}",
-        )
+        check(token)
+        request_kwargs = timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout)
+        mark_started(token)
+        response = self.client.delete(f"/{self.collection_url_prefix}/{collection.name}", **request_kwargs)
 
         if response.status_code == STATUS_OK:
             return
@@ -52,16 +60,23 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         raise_for_status(response, "Collection wasn't deleted")
 
     @check_ctx_state
-    def create(self, collection: "Collection") -> None:
+    def create(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Create collection on the server.
 
         :param collection: Deker's collection instance
+        :param timeout: seconds to wait for the lock of the collection, sent to the server; ``Sentinel`` - the
+          default of the server
+        :param token: token of the write operation
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerCollectionAlreadyExistsError: if the server rejected the name as taken
         :raises DekerClusterError: if the server answered 503: it cannot take the request now
         :raises DekerServerError: if the server answered anything else but 201
         """
+        check(token)
         data = collection.as_dict
-        response = self.client.post(f"/{self.collections_url_prefix}", json=data)
+        request_kwargs = timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout)
+        mark_started(token)
+        response = self.client.post(f"/{self.collections_url_prefix}", json=data, **request_kwargs)
         if response.status_code == STATUS_CREATED:
             return
 
@@ -81,7 +96,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         """
         url = f"{self.collection_url_prefix}/{name}"
         if self.client.cluster_mode:
-            response = make_request(url=url, nodes=self.nodes_urls, client=self.client)
+            response = make_request(url=url, nodes=self.nodes_urls, client=self.client, token=DefaultToken())
         else:
             response = self.client.get(url)
 
@@ -94,17 +109,23 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         raise_for_status(response, f"Couldn't get the collection {name=}")
 
     @check_ctx_state
-    def clear(self, collection: "Collection") -> None:
+    def clear(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Remove every array of the collection on the server.
 
         :param collection: Instance of Deker's collection
+        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerCollectionNotExistsError: if the server answered 404
         :raises DekerServerError: if the server answered anything else but 200
         """
+        check(token)
         array_type = "varrays" if collection.varray_schema else "arrays"
+        request_kwargs = timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout)
+        mark_started(token)
         response = self.client.put(
-            f"/{self.collection_url_prefix}/{collection.name}/{array_type}",
-            json=[],
+            f"/{self.collection_url_prefix}/{collection.name}/{array_type}", json=[], **request_kwargs
         )
 
         if response.status_code == NOT_FOUND:
@@ -140,10 +161,12 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         :raises DekerServerError: if the server answered anything but 200
         """
         nodes = [node.url.raw_url for node in self.nodes] if self.client.cluster_mode else [str(self.client.base_url)]
-        all_collections_response = make_request(url=self.collections_url_prefix, nodes=nodes, client=self.client)
+        all_collections_response = make_request(
+            url=self.collections_url_prefix, nodes=nodes, client=self.client, token=DefaultToken()
+        )
         if all_collections_response is None or all_collections_response.status_code != STATUS_OK:
             raise DekerServerError(
-                all_collections_response,
+                Sentinel if all_collections_response is None else all_collections_response,
                 "Couldn't get list of collections",
             )
 

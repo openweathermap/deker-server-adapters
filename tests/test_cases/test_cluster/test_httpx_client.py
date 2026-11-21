@@ -2,8 +2,10 @@ import re
 
 import httpx
 
+from cantok import DefaultToken
 from deker import Array, VArray
 from deker.ctx import CTX
+from deker_tools.typings import Sentinel
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -46,7 +48,7 @@ def test_new_cluster_config_is_applied_after_non_leader_error(
     )
     # Ok, on the new leader only
     httpx_mock.add_response(status_code=200, method="PUT", json={}, url=re.compile(r"http://newhost\.owm\.io/.*"))
-    server_varray_adapter.update_meta_custom_attributes(varray, {})
+    server_varray_adapter.update_meta_custom_attributes(varray, {}, timeout=Sentinel, token=DefaultToken())
     assert server_varray_adapter.ctx.extra["cluster_config"].leader.host == "newhost.owm.io"
     assert str(server_varray_adapter.client.base_url) == "http://newhost.owm.io"
 

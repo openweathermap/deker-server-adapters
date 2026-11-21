@@ -6,9 +6,11 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from uuid import uuid4
 
+import httpx
 import numpy as np
 import pytest
 
+from cantok import AbstractToken, DefaultToken, SimpleToken, TimeoutToken
 from deker import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.arrays import Array, VArray
 from deker.collection import Collection
@@ -16,6 +18,8 @@ from deker.config import DekerConfig
 from deker.ctx import CTX
 from deker.uri import Uri
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from deker_tools.cancel import TokenCancelledError, TokenTimeoutError
+from deker_tools.typings import Sentinel
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -29,6 +33,37 @@ from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
 CLUSTER_MODE = "cluster"
 SINGLE_MODE = "single"
+# the adapter methods that take no timeout and no token: they neither change nor read the data
+UNTIMED_METHODS = frozenset({"read_meta", "read", "is_deleted"})
+
+
+def operation_kwargs(method: str) -> dict:
+    """Keyword arguments of an adapter method called outside any operation: no timeout, a token never cancelled."""
+    if method in UNTIMED_METHODS:
+        return {}
+    return {"timeout": Sentinel, "token": DefaultToken()}
+
+
+# the kinds of the tokens fired before a call and the errors of deker-tools they raise
+FIRED_TOKENS = [
+    pytest.param("cancelled", TokenCancelledError, id="cancelled"),
+    pytest.param("timed-out", TokenTimeoutError, id="timed-out"),
+]
+
+
+def fired_token(kind: str) -> AbstractToken:
+    """Build a token fired before the call: cancelled from outside, or with its time over."""
+    if kind == "timed-out":
+        return TimeoutToken(0)
+    token = SimpleToken()
+    token.cancel()
+    return token
+
+
+def cancel_and_answer(scope: SimpleToken, status: int, body: bytes, request: httpx.Request) -> httpx.Response:
+    """Cancel the scope while the server holds the request and answer it: the client went away during the request."""
+    scope.cancel()
+    return httpx.Response(status, content=body)
 
 
 pytest_plugins = ["tests.plugins.cluster"]
@@ -72,6 +107,7 @@ def ctx(mode, base_uri: Uri, nodes: list[dict], mocked_ping: dict) -> CTX:
         config=DekerConfig(
             uri=str(base_uri.raw_url),
             workers=1,
+            read_timeout=3,
             write_lock_timeout=1,
             write_lock_check_interval=1,
             memory_limit=40000,
@@ -244,7 +280,12 @@ def bounds_factory() -> AdaptersFactory:
     ctx = CTX(
         uri=uri,
         config=DekerConfig(
-            uri=str(uri.raw_url), workers=1, write_lock_timeout=1, write_lock_check_interval=1, memory_limit=40000
+            uri=str(uri.raw_url),
+            workers=1,
+            read_timeout=3,
+            write_lock_timeout=1,
+            write_lock_check_interval=1,
+            memory_limit=40000,
         ),
         storage_adapter=HDF5StorageAdapter,
         executor=ThreadPoolExecutor(max_workers=1),

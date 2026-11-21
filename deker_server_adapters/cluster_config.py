@@ -1,15 +1,26 @@
 from dataclasses import dataclass, field
 from functools import cached_property
 from json import JSONDecodeError
+from logging import getLogger
 
+from cantok import DefaultToken
 from deker.ctx import CTX
 from deker.uri import Uri
+from deker_tools.typings import Sentinel
 
-from deker_server_adapters.consts import LAST_MODIFIED_HEADER, STATUS_OK
+from deker_server_adapters.consts import (
+    LAST_MODIFIED_HEADER,
+    SERVER_TIMEOUTS,
+    STATUS_OK,
+    TIMEOUT_LIMITS,
+    TIMEOUTS_KEY,
+)
 from deker_server_adapters.errors import DekerClusterError, DekerServerError
 from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.utils.requests import make_request
 from deker_server_adapters.utils.version import get_api_version
+
+logger = getLogger(__name__)
 
 CLUSTER_MODE = "cluster"
 
@@ -82,7 +93,7 @@ class ClusterConfig:
         leader = next((node for node in raft_nodes if node.id == leader_id), None)
 
         if not leader:
-            raise DekerClusterError(None, "No leader has been found")
+            raise DekerClusterError(message="No leader has been found")
 
         current = _nodes_from_dicts(cluster_config_dict["current"])
         target = _nodes_from_dicts(cluster_config_dict["target"]) if "target" in cluster_config_dict else None
@@ -109,7 +120,7 @@ def is_config_in_cluster_mode(config: dict | None, ctx: CTX) -> bool:
 
     if config is None or config.get("mode") != CLUSTER_MODE:
         raise DekerClusterError(
-            config,
+            Sentinel if config is None else config,
             "Server responded with wrong config. Key 'mode' either doesn't exist or its value differs from 'cluster'",
         )
 
@@ -141,12 +152,48 @@ def apply_config(config_dict: dict, ctx: CTX) -> None:
         ctx.extra["hash_ring_target"] = HashRing(config.target)
 
 
+def apply_timeouts(config_dict: dict, ctx: CTX) -> None:
+    """Make the timeouts the server reported at the ping the settings of the client.
+
+    The defaults of the server become ``read_timeout`` and ``write_lock_timeout`` of the client: an operation
+    without its own timeout waits as long as the server does. The limits of the server are kept in the context
+    extra under ``timeout_limits``, for the logs. An older server reports no timeouts: the settings stay.
+
+    :param config_dict: JSON of the ping
+    :param ctx: Application context
+    :raises DekerServerError: if the timeouts are not four positive integer numbers of seconds
+    """
+    if TIMEOUTS_KEY not in config_dict:
+        return
+    timeouts = config_dict[TIMEOUTS_KEY]
+    if not isinstance(timeouts, dict) or not all(
+        type(timeouts.get(name)) is int and timeouts[name] > 0 for name in SERVER_TIMEOUTS
+    ):
+        raise DekerServerError(message=f"The server reported invalid timeouts: {timeouts}")
+    ctx.config.read_timeout = timeouts["read_timeout"]
+    ctx.config.write_lock_timeout = timeouts["write_lock_timeout"]
+    ctx.extra[TIMEOUT_LIMITS] = {
+        "max_read_timeout": timeouts["max_read_timeout"],
+        "max_write_lock_timeout": timeouts["max_write_lock_timeout"],
+    }
+    logger.info(
+        "Timeouts of the server: read %s s, write lock %s s; the limits: read %s s, write lock %s s",
+        timeouts["read_timeout"],
+        timeouts["write_lock_timeout"],
+        timeouts["max_read_timeout"],
+        timeouts["max_write_lock_timeout"],
+    )
+
+
 def request_and_apply_config(ctx: CTX) -> None:
-    """Ping the server (every server of a cluster uri), check it answers and apply the cluster config it returns.
+    """Ping the server (every server of a cluster uri), check it answers and apply the config it returns.
+
+    The timeouts of the server become the settings of the client, the cluster config is applied in a cluster.
 
     :param ctx: Application context
     :raises DekerServerError: if no server answered the ping, or the answer was not 200; the error names every server
-        that did not answer with the reason; the http client is closed then
+        that did not answer with the reason; the http client is closed then. Also if the server reported invalid
+        timeouts
     :raises DekerClusterError: if the config of a cluster uri is not a cluster config, or the config is not a json
     """
     httpx_client = ctx.extra["httpx_client"]
@@ -155,7 +202,7 @@ def request_and_apply_config(ctx: CTX) -> None:
     # If we do healthcheck in cluster
     nodes = [*ctx.uri.servers] if ctx.uri.servers else [ctx.uri.raw_url]
     failures: list[str] = []
-    response = make_request(url=url, nodes=nodes, client=httpx_client, failures=failures)
+    response = make_request(url=url, nodes=nodes, client=httpx_client, failures=failures, token=DefaultToken())
 
     if response is None:
         httpx_client.close()
@@ -168,6 +215,8 @@ def request_and_apply_config(ctx: CTX) -> None:
 
     try:
         config = response.json()
+        if isinstance(config, dict):
+            apply_timeouts(config, ctx)
         if is_config_in_cluster_mode(config, ctx):
             # Set hash of config
             httpx_client.headers.update({LAST_MODIFIED_HEADER: response.headers[LAST_MODIFIED_HEADER]})

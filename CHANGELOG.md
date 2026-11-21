@@ -35,6 +35,34 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
   message of the server and no causes, as the local adapters do.
 - A stale configuration of the cluster is a `412` of the server, not a `409`; the client refreshes
   the configuration and retries as before.
+- Every operation of the adapters that reads or changes data takes keyword-only `timeout` and `token`
+  (`deker` 2.0.0): `create`, `create_from_dict`, `read_data`, `update`, `clear`, `delete` and
+  `update_meta_custom_attributes` of the array adapters, `delete_all_by_vid` of the Array adapter, `create`,
+  `clear` and `delete` of the collection adapter. `make_request` and `request_in_cluster` take a keyword-only
+  `token`.
+- An argument that is not given is left out instead of passed as `None`: `DekerServerError` and its
+  subclasses without a response take no `response` (the `message` defaults to an empty string), `HashRing`
+  without weights takes no `weights`, `make_request` and `request_in_cluster` without extra arguments of the
+  request take no `request_kwargs`, and without a list for the failures no `failures`.
+
+### Added
+
+- Timeouts and cancellation of DEKER™ 2.0.0. The timeout given to an operation goes to the server as the
+  `timeout` query parameter; an operation without one sends none, and the server applies its own default.
+  The http client waits for the answer as long as the operation may take, that is its timeout or the
+  setting of the client (`read_timeout` for a read, `write_lock_timeout` for the other operations), and
+  5 seconds more for the way there and back. The http client without an operation (the ping and the
+  configuration of the cluster) keeps its own timeout.
+- The token of the operation is checked before every request, and in a cluster before the request to
+  every Array and every node: a cancelled operation sends no more requests. A write closes the start flag
+  of its token right before its first changing request, so a write that is sent goes to its end;
+  `delete_all_by_vid` closes it before the first deletion.
+- On connection the client takes the timeouts the server reports in its ping: the defaults of the server
+  become `read_timeout` and `write_lock_timeout` of the client, the limits of the server are kept in the
+  context as `timeout_limits`, for the logs. An older server reports none, and the settings stay as they
+  are; timeouts that are not positive integer numbers of seconds raise `DekerServerError`.
+- A timeout the server cut down to its limit (the `X-Deker-Timeout-Capped` header) is logged as a warning
+  with the seconds asked and the seconds applied.
 
 ### Changed
 
@@ -67,6 +95,11 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
   the node. The adapters never retry a node on their own; a read of the metadata still falls over to
   the other nodes of the cluster, as before. The collection adapter raises the same errors as the
   array adapters for 423, 409 and 503.
+- A `504` of the server, the read timeout of the operation is over, raises `DekerTimeoutError` of
+  DEKER™ instead of `DekerTimeoutServer`, on every route of the arrays. `DekerTimeoutServer` stays for a
+  server that does not answer in time (a timeout of the http client). The creation of an array raises
+  the same errors as the other operations for 423, 409, 503 and 504; an operation whose node did not
+  answer raises `DekerServerError` with what the adapter was doing.
 
 ### Fixed
 
@@ -79,7 +112,7 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
 - The messages of the log are formatted only when they are written.
 - The build moved from poetry to uv, ruff and pydoclint replace black, flake8, isort and darglint;
   `make ci`, `make test-matrix`, `make install-matrix`; `py.typed`, no type-check suppressions;
-  100% test coverage required; tests in random order.
+  100% test coverage required; tests in random order; `pytest-timeout` in the dev dependencies.
 
 ## [1.2.0] - 2026-11-11
 

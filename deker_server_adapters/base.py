@@ -7,22 +7,26 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional, cast
 
 import numpy as np
 
+from cantok import AbstractToken, DefaultToken
 from deker import Array, Collection, VArray
 from deker.ABC.base_adapters import IArrayAdapter
 from deker.ctx import CTX
-from deker.errors import DekerLockError, DekerVSubsetError
+from deker.errors import DekerLockError, DekerTimeoutError, DekerVSubsetError
 from deker.tools.array import get_id
 from deker.tools.time import convert_datetime_attrs_to_iso
 from deker.types import ArrayMeta, Data, Numeric, Slice
 from deker.types.private.typings import ArrayT
 from deker.uri import Uri
+from deker_tools.cancel import check, mark_started, resolve_timeout
 from deker_tools.slices import slices_to_str
-from httpx import Response, TimeoutException
+from deker_tools.typings import SentinelType, is_sentinel
+from httpx import Response, Timeout, TimeoutException
 from numpy import ndarray
 
 from deker_server_adapters.cluster_config import ClusterConfig, Node
 from deker_server_adapters.consts import (
     LOCKED,
+    NETWORK_TIMEOUT_MARGIN,
     NOT_FOUND,
     READ_CHUNK_SIZE,
     RETRY_AFTER_HEADER,
@@ -30,6 +34,7 @@ from deker_server_adapters.consts import (
     STATUS_CREATED,
     STATUS_OK,
     TIMEOUT,
+    TIMEOUT_PARAM,
     WRITTEN_PARTLY,
     ArrayType,
 )
@@ -74,6 +79,22 @@ def retry_after_of(response: Response) -> int | None:
     return int(value)
 
 
+def timeout_kwargs(*, timeout: int | SentinelType, default: int) -> dict[str, Any]:
+    """Build the arguments of a request for the timeout of its operation.
+
+    The server gets the timeout only when the call gave it, otherwise it applies its own default. The http client
+    waits for the answer as long as the operation may take on the server, and ``NETWORK_TIMEOUT_MARGIN`` more.
+
+    :param timeout: seconds the call gave to the operation, or ``Sentinel``
+    :param default: seconds of the setting of the client the timeout of the operation defaults to
+    :returns: the ``timeout`` of the http client, and the ``params`` with the timeout when the call gave it
+    """
+    kwargs: dict[str, Any] = {"timeout": Timeout(resolve_timeout(timeout, default) + NETWORK_TIMEOUT_MARGIN)}
+    if not is_sentinel(timeout):
+        kwargs["params"] = {TIMEOUT_PARAM: str(timeout)}
+    return kwargs
+
+
 def raise_for_status(response: Response | None, message: str) -> NoReturn:
     """Raise the error of deker for a response of the server which is not 200.
 
@@ -81,14 +102,19 @@ def raise_for_status(response: Response | None, message: str) -> NoReturn:
     :param message: what the adapter was doing, for the generic error
     :raises DekerLockError: if the server answered 423: the array is held by another process
     :raises DekerVSubsetError: if the server answered 409: some Arrays of the VArray could not be written
+    :raises DekerTimeoutError: if the server answered 504: the read timeout of the operation is over
     :raises DekerClusterError: if the server answered 503: it cannot take the request now, with the seconds to wait
-    :raises DekerServerError: for any other status
+    :raises DekerServerError: for any other status, or if no node answered
     """
-    if response is not None and response.status_code == LOCKED:
+    if response is None:
+        raise DekerServerError(message=message)
+    if response.status_code == LOCKED:
         raise DekerLockError(server_message(response))
-    if response is not None and response.status_code == WRITTEN_PARTLY:
+    if response.status_code == WRITTEN_PARTLY:
         raise DekerVSubsetError(server_message(response), [])
-    if response is not None and response.status_code == SERVICE_UNAVAILABLE:
+    if response.status_code == TIMEOUT:
+        raise DekerTimeoutError(f"{message}: {server_message(response)}")
+    if response.status_code == SERVICE_UNAVAILABLE:
         retry_after = retry_after_of(response)
         logger.error(
             "%s: %s answered 503 %s, retry after %s s",
@@ -176,46 +202,61 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         """Get the path of the collection uri without the trailing slash."""
         return self.collection_path.path.rstrip("/")
 
-    def __post_array(self, array: ArrayT | dict, kwargs: dict[str, Any]) -> Response:
+    def __post_array(
+        self, array: ArrayT | dict, kwargs: dict[str, Any], *, timeout: int | SentinelType, token: AbstractToken
+    ) -> Response:
         """Send the request creating an array and check that it was created.
 
         :param array: Array/VArray instance or its description, used to pick the node in cluster mode
         :param kwargs: json body of the request
+        :param timeout: seconds the call gave to the creation, or ``Sentinel``
+        :param token: token of the write operation; its start flag is closed right before the request
         :returns: the server response
         :raises DekerServerError: if the server answered anything but 201
         """
-        request_kwargs: dict[str, Any] = {"json": kwargs}
+        request_kwargs: dict[str, Any] = {
+            "json": kwargs,
+            **timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout),
+        }
         url = f"{self.path_stripped}/{self.type.name}s"
+        mark_started(token)
         if self.type == ArrayType.array and self.client.cluster_mode:
-            response = request_in_cluster(url, array, self.ctx, method="POST", request_kwargs=request_kwargs)
+            response = request_in_cluster(
+                url, array, self.ctx, method="POST", request_kwargs=request_kwargs, token=token
+            )
         else:
             response = self.client.post(url, **request_kwargs)
 
-        if not response or response.status_code != STATUS_CREATED:
-            raise DekerServerError(response, f"Couldn't create the {self.type.name}")
+        if response is None or response.status_code != STATUS_CREATED:
+            raise_for_status(response, f"Couldn't create the {self.type.name}")
         return response
 
-    def create(self, array: ArrayT | dict) -> ArrayT:
+    def create(self, array: ArrayT | dict, *, timeout: int | SentinelType, token: AbstractToken) -> ArrayT:
         """Create array on server.
 
         :param array: Array/VArray instance; a dict is accepted for backward compatibility only,
             see ``create_from_dict``
+        :param timeout: seconds the call gave to the creation, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation
         :returns: the same instance, once it is created on the server
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerServerError: if the server answered anything but 201
         """
+        check(token)
         if isinstance(array, dict):
-            return self.create_from_dict(array)
+            return self.create_from_dict(array, timeout=timeout, token=token)
 
         kwargs = {
             "primary_attributes": convert_datetime_attrs_to_iso(array.primary_attributes),
             "custom_attributes": convert_datetime_attrs_to_iso(array.custom_attributes),
             "id_": array.id,
         }
-        self.__post_array(array, kwargs)
+        self.__post_array(array, kwargs, timeout=timeout, token=token)
         return array
 
     # TODO: remove in 3.0.0 together with the dict branch of ``create``
-    def create_from_dict(self, data: dict) -> ArrayT:
+    def create_from_dict(self, data: dict, *, timeout: int | SentinelType, token: AbstractToken) -> ArrayT:
         """Create array on server from its description and build the instance from the server response.
 
         .. deprecated:: 2.0.0
@@ -224,9 +265,14 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         :param data: dict with ``primary_attributes``, ``custom_attributes``, ``collection``, ``adapter``,
             ``array_adapter`` for a VArray, and an optional ``id_``; without an id the server assigns one
             (in cluster mode the id is generated by the client, as the node is picked by it)
+        :param timeout: seconds the call gave to the creation, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation
         :returns: Array/VArray built from the description and the id in the server response
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerServerError: if the server answered anything but 201 or the response has no id
         """
+        check(token)
         warnings.warn(
             "Creating arrays from a dict is deprecated and will be removed in 3.0.0; "
             "pass an Array or VArray instance to create instead",
@@ -243,7 +289,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             "custom_attributes": convert_datetime_attrs_to_iso(custom_attributes),
             "id_": id_,
         }
-        response = self.__post_array(data, kwargs)
+        response = self.__post_array(data, kwargs, timeout=timeout, token=token)
 
         try:
             body = response.json()
@@ -279,9 +325,11 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
 
         # Only Varray can be located on different nodes yet.
         if self.type == ArrayType.varray and self.client.cluster_mode:
-            response = make_request(url=url, nodes=self.nodes_urls, client=self.client, retry_on_hash_failure=True)
+            response = make_request(
+                url=url, nodes=self.nodes_urls, client=self.client, retry_on_hash_failure=True, token=DefaultToken()
+            )
         elif self.client.cluster_mode:
-            response = request_in_cluster(url, array, self.ctx, True)
+            response = request_in_cluster(url, array, self.ctx, True, token=DefaultToken())
         else:
             response = self.client.get(url)
 
@@ -294,42 +342,69 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         self,
         array: ArrayT,
         attributes: dict,
+        *,
+        timeout: int | SentinelType,
+        token: AbstractToken,
     ) -> None:
         """Update custom attributes of (v)array on the server.
 
         :param array: Instance of (v)array
         :param attributes: dict with attributes to update
+        :param timeout: seconds to wait for the lock of the file, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerLockError: if the array is held by another process
         :raises DekerServerError: if the server answered anything but 200
         """
+        check(token)
         # Writing is always on leader node for non array
 
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}"
-        request_kwargs: dict[str, Any] = {"json": {"custom_attributes": convert_datetime_attrs_to_iso(attributes)}}
+        request_kwargs: dict[str, Any] = {
+            "json": {"custom_attributes": convert_datetime_attrs_to_iso(attributes)},
+            **timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout),
+        }
+        mark_started(token)
         if self.client.cluster_mode and self.type == ArrayType.array:
             response = request_in_cluster(
-                url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
+                url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs, token=token
             )
         else:
             response = self.client.put(url, **request_kwargs)
-        if not response or response.status_code != STATUS_OK:
+        if response is None or response.status_code != STATUS_OK:
             raise_for_status(response, "Couldn't update attributes")
 
-    def delete(self, array: ArrayT) -> None:
+    def delete(self, array: ArrayT, *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Delete array on server.
 
         :param array: Array/Varray to be deleted
+        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerLockError: if the array is held by another process
         :raises DekerServerError: if the server answered anything but 200
         """
+        check(token)
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}"
+        request_kwargs = timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout)
 
+        mark_started(token)
         if self.client.cluster_mode and self.type == ArrayType.array:
-            response = request_in_cluster(url, array, self.ctx, should_check_status=True, method="DELETE")
+            response = request_in_cluster(
+                url,
+                array,
+                self.ctx,
+                should_check_status=True,
+                method="DELETE",
+                request_kwargs=request_kwargs,
+                token=token,
+            )
         else:
-            response = self.client.delete(url)
+            response = self.client.delete(url, **request_kwargs)
 
-        if not response or response.status_code != STATUS_OK:
+        if response is None or response.status_code != STATUS_OK:
             raise_for_status(response, f"Couldn't delete the {self.type.name}")
 
     @staticmethod
@@ -355,38 +430,50 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         self,
         array: ArrayT,
         bounds: Slice,
+        *,
+        timeout: int | SentinelType,
+        token: AbstractToken,
     ) -> Numeric | ndarray:
         """Read data from array/varray, streaming the response into an array of the shape of the bounds.
 
         :param array: From what array we read
         :param bounds: What part of array we read
+        :param timeout: seconds of the read, sent to the server; ``Sentinel`` - the default of the server
+        :param token: token of the read operation
         :returns: data within the bounds; a scalar for a single cell
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerLockError: if the array is held by a writer
+        :raises DekerTimeoutError: if the server answered 504: the read took longer than its timeout
         :raises DekerServerError: if the server answered anything but 200, or sent a body of another size
-        :raises DekerTimeoutServer: if the request or the server timed out
+        :raises DekerTimeoutServer: if the server did not answer in time
         """
+        check(token)
         bounds_ = slices_to_str(bounds)
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data"
-        headers = {"Accept": "application/octet-stream"}
+        request_kwargs: dict[str, Any] = {
+            "headers": {"Accept": "application/octet-stream"},
+            **timeout_kwargs(timeout=timeout, default=self.ctx.config.read_timeout),
+        }
         try:
             if self.client.cluster_mode:
                 response = request_in_cluster(
-                    url, array, self.ctx, should_check_status=True, request_kwargs={"headers": headers}, stream=True
+                    url,
+                    array,
+                    self.ctx,
+                    should_check_status=True,
+                    request_kwargs=request_kwargs,
+                    stream=True,
+                    token=token,
                 )
             else:
-                response = self.client.request("GET", url, headers=headers, stream=True)
+                response = self.client.request("GET", url, stream=True, **request_kwargs)
         except TimeoutException:
             raise DekerTimeoutServer(
                 message=f"Timeout on {self.type.name} read {array}",
             )
 
-        if not response or response.status_code not in [STATUS_OK, TIMEOUT]:
+        if response is None or response.status_code != STATUS_OK:
             raise_for_status(response, "Couldn't read the array")
-
-        if response.status_code == TIMEOUT:
-            raise DekerTimeoutServer(
-                message=f"Timeout on {self.type.name} read {array}",
-            )
 
         # the body is streamed straight into the result: no intermediate copy of the whole payload
         result = np.empty(array[bounds].shape, dtype=array.dtype)
@@ -402,25 +489,42 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             return result[()]
         return result
 
-    def __put_data(self, array: ArrayT, bounds: Slice, body: bytes) -> None:
+    def __put_data(
+        self, array: ArrayT, bounds: Slice, body: bytes, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> None:
         """Send the bytes of a region of the array to the server.
 
         :param array: Array/Varray that will be updated
         :param bounds: Part of the array to update
         :param body: raw bytes of the region in the array dtype; empty bytes clear the region
+        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation; its start flag is closed right before the request
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerLockError: if the array is held by another process
         :raises DekerVSubsetError: if some Arrays of the VArray could not be written, the others are written
         :raises DekerServerError: if the server answered anything but 200
-        :raises DekerTimeoutServer: if the request or the server timed out
+        :raises DekerTimeoutServer: if the server did not answer in time
         """
         bounds_ = slices_to_str(bounds)
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}/subset/{bounds_}/data"
-        request_kwargs: dict[str, Any] = {"headers": {"Content-Type": "application/octet-stream"}, "data": body}
+        request_kwargs: dict[str, Any] = {
+            "headers": {"Content-Type": "application/octet-stream"},
+            "data": body,
+            **timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout),
+        }
+        mark_started(token)
         # We write (v)array through the node it belongs in cluster
         try:
             if self.client.cluster_mode:
                 response = request_in_cluster(
-                    url, array, self.ctx, should_check_status=True, method="PUT", request_kwargs=request_kwargs
+                    url,
+                    array,
+                    self.ctx,
+                    should_check_status=True,
+                    method="PUT",
+                    request_kwargs=request_kwargs,
+                    token=token,
                 )
             else:
                 response = self.client.put(url, **request_kwargs)
@@ -429,15 +533,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
                 message=f"Timeout on {self.type.name} update {array}",
             )
 
-        if not response or response.status_code not in [STATUS_OK, TIMEOUT]:
+        if response is None or response.status_code != STATUS_OK:
             raise_for_status(response, "Couldn't update array")
 
-        if response.status_code == TIMEOUT:
-            raise DekerTimeoutServer(
-                message=f"Timeout on {self.type.name} update {array}",
-            )
-
-    def update(self, array: ArrayT, bounds: Slice, data: Data) -> None:
+    def update(
+        self, array: ArrayT, bounds: Slice, data: Data, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> None:
         """Update array/varray on server.
 
         The data is validated and cast to the array dtype and the shape of the region before it is sent,
@@ -446,22 +547,32 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         :param array: Array/Varray that will be updated
         :param bounds: Part of the array to update
         :param data: Data that will replace current values
+        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerArrayTypeError: if the data cannot be cast to the array dtype without loss
         :raises IndexError: if the data shape does not match the region
         """
+        check(token)
         processed = self._process_data(array.dtype, array.shape, data, bounds)
         region = np.broadcast_to(processed, array[bounds].shape)
-        self.__put_data(array, bounds, region.tobytes())
+        self.__put_data(array, bounds, region.tobytes(), timeout=timeout, token=token)
 
-    def clear(self, array: ArrayT, bounds: Slice) -> None:
+    def clear(self, array: ArrayT, bounds: Slice, *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Clear a region of the array/varray on the server: an empty body is sent for it.
 
         :param array: Instance of array/varray
         :param bounds: Part of the array/varray that will be cleared
+        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
+          the server
+        :param token: token of the write operation
+        :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerServerError: if the server answered anything but 200
-        :raises DekerTimeoutServer: if the request or the server timed out
+        :raises DekerTimeoutServer: if the server did not answer in time
         """
-        self.__put_data(array, bounds, b"")
+        check(token)
+        self.__put_data(array, bounds, b"", timeout=timeout, token=token)
 
     def is_deleted(self, array: ArrayT) -> bool:
         """Check if array/varray was deleted on server: not checked, the server answers 404 to a deleted array.
@@ -507,7 +618,9 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         # We read an Array through the node it belongs
         url = f"{self.path_stripped}/{self.type.name}/by-primary/{primary_path}"
         if self.client.cluster_mode:
-            response = request_in_cluster(url, array={"primary_attributes": primary_attributes}, ctx=self.ctx)
+            response = request_in_cluster(
+                url, array={"primary_attributes": primary_attributes}, ctx=self.ctx, token=DefaultToken()
+            )
         else:
             response = self.client.get(
                 url,
@@ -598,11 +711,7 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
             if schema.primary_attributes:
                 raise FilteringByIdInClusterIsForbidden
 
-            response = request_in_cluster(
-                url,
-                {"id_": id_},
-                self.ctx,
-            )
+            response = request_in_cluster(url, {"id_": id_}, self.ctx, token=DefaultToken())
         else:
             response = self.client.get(
                 url,

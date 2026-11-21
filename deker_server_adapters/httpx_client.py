@@ -25,6 +25,8 @@ from deker_server_adapters.consts import (
     PRECONDITION_FAILED,
     RATE_ERROR_MESSAGE,
     STATUS_OK,
+    TIMEOUT_CAPPED_HEADER,
+    TIMEOUT_HEADER,
     TOO_LARGE_ERROR_MESSAGE,
     TOO_MANY_REQUESTS,
 )
@@ -84,6 +86,8 @@ class HttpxClient(Client):
     ) -> Response:
         """Send a built request; the body of a failed response is read even when streaming was asked.
 
+        A timeout the server cut down to its limit is logged as a warning, with the seconds asked and applied.
+
         :param request: the request
         :param stream: do not read the body of a ``200`` response
         :param auth: the auth of this request, the client's by default
@@ -91,6 +95,15 @@ class HttpxClient(Client):
         :returns: server response
         """
         response = self.send(request, stream=stream, auth=auth, follow_redirects=follow_redirects)
+        capped = response.headers.get(TIMEOUT_CAPPED_HEADER)
+        if capped is not None:
+            logger.warning(
+                "The server cut the timeout of %s %s down: %s s asked, %s s applied",
+                request.method,
+                request.url.path,
+                capped,
+                response.headers.get(TIMEOUT_HEADER),
+            )
         if stream and response.status_code != STATUS_OK:
             response.read()
         return response

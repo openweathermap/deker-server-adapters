@@ -6,7 +6,7 @@ STATUS_OK = 200
 STATUS_CREATED = 201
 BAD_REQUEST = 400
 NOT_FOUND = 404
-TIMEOUT = 504
+TIMEOUT = 504  # the read timeout of the operation is over on the server
 CONTENT_TOO_LARGE = 413
 TOO_MANY_REQUESTS = 429
 NON_LEADER_WRITE = 421
@@ -31,6 +31,16 @@ MAX_CONNECTIONS = 100  # the pool of the http client, the httpx defaults stated 
 MAX_KEEPALIVE_CONNECTIONS = 20
 REBALANCING_STATUS = "rebalancing"
 NORMAL_STATUS = "normal"
+
+# seconds the http client waits for an answer beyond the timeout of the operation: the way there and back
+NETWORK_TIMEOUT_MARGIN = 5
+TIMEOUT_PARAM = "timeout"  # query parameter with the seconds of the operation, sent only when the call gives them
+TIMEOUT_HEADER = "X-Deker-Timeout"  # seconds the server applied to the operation
+TIMEOUT_CAPPED_HEADER = "X-Deker-Timeout-Capped"  # seconds asked, when the server cut them down to its limit
+TIMEOUTS_KEY = "timeouts"  # key of the ping answer with the timeouts of the server
+# the defaults and the limits of the timeouts of the server, in seconds, under TIMEOUTS_KEY
+SERVER_TIMEOUTS = ("read_timeout", "write_lock_timeout", "max_read_timeout", "max_write_lock_timeout")
+TIMEOUT_LIMITS = "timeout_limits"  # key of the context extra with the limits of the server, for the logs
 
 
 class ArrayType(Enum):

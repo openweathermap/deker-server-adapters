@@ -8,9 +8,13 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from cantok import DefaultToken
 from deker.arrays import VArray
 from deker.ctx import CTX
+from deker_tools.typings import Sentinel
 from pytest_httpx import HTTPXMock
+
+from tests.conftest import operation_kwargs
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.consts import LAST_MODIFIED_HEADER, NON_LEADER_WRITE
@@ -55,7 +59,7 @@ def test_array_generate_id(
 ):
     httpx_mock.add_response(method="POST", json=varray.as_dict, status_code=201)
     data = varray.as_dict
-    data.update({"id": None, "id_": None, "primary_attributes": None})
+    data.update({"id": None, "id_": None, "primary_attributes": {}})
     with pytest.warns(DeprecationWarning, match="3.0.0"):
         server_varray_adapter.create_from_dict(
             {
@@ -63,7 +67,9 @@ def test_array_generate_id(
                 "adapter": server_varray_adapter,
                 "collection": varray_collection,
                 "array_adapter": server_array_adapter,
-            }
+            },
+            timeout=Sentinel,
+            token=DefaultToken(),
         )
     requests: list[Request] = httpx_mock.get_requests()
     for request in requests:
@@ -156,7 +162,7 @@ def test_varray_write_after_a_leader_change_goes_to_the_new_leader(
         url=re.compile(r"http://newhost\.owm\.io/.*"),
     )
 
-    getattr(server_varray_adapter, write)(varray, *extra_args)
+    getattr(server_varray_adapter, write)(varray, *extra_args, **operation_kwargs(write))
 
     assert [request.url.host for request in httpx_mock.get_requests(method=method)] == ["localhost", "newhost.owm.io"]
     assert server_varray_adapter.ctx.extra["cluster_config"].leader.id == NEW_LEADER["id"]
@@ -173,6 +179,6 @@ def test_varray_write_fails_when_the_config_of_the_non_leader_answer_has_no_lead
     )
 
     with pytest.raises(DekerClusterError, match="No leader has been found"):
-        server_varray_adapter.update_meta_custom_attributes(varray, {})
+        server_varray_adapter.update_meta_custom_attributes(varray, {}, timeout=Sentinel, token=DefaultToken())
 
     assert len(httpx_mock.get_requests(method="PUT")) == 1
