@@ -6,13 +6,14 @@ from cantok import AbstractToken
 from deker.ABC import BaseArray
 from deker.ctx import CTX
 from deker_tools.cancel import check
+from deker_tools.hash_ring import HashRing, get_hash_key, get_id_and_primary_attributes
+from deker_tools.hash_ring import HashRingError as RingError
 from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 from httpx import Response
 
 from deker_server_adapters.consts import REBALANCING_STATUS, STATUS_OK
-from deker_server_adapters.errors import DekerServerError, InvalidConfigHash
+from deker_server_adapters.errors import DekerServerError, HashRingError, InvalidConfigHash
 from deker_server_adapters.models import Status
-from deker_server_adapters.utils.hashing import get_hash_key, get_id_and_primary_attributes
 from deker_server_adapters.utils.version import get_api_version
 
 if TYPE_CHECKING:
@@ -130,6 +131,20 @@ def make_request(
     return response
 
 
+def get_node_of(ring: "HashRing[Node]", array: BaseArray | dict) -> "Node":
+    """Get the node of the ring responsible for an array.
+
+    :param ring: hash ring of the cluster
+    :param array: Array instance, or a dict with its id and/or primary attributes
+    :returns: the node of the key of the array
+    :raises HashRingError: if the ring has no nodes, or the array has neither primary attributes nor an id
+    """
+    try:
+        return ring.get_node(get_hash_key(array))
+    except RingError as e:
+        raise HashRingError(str(e)) from None
+
+
 def check_status(ctx: CTX, array: BaseArray) -> Status:
     """Check status of file on the server.
 
@@ -138,7 +153,7 @@ def check_status(ctx: CTX, array: BaseArray) -> Status:
     :returns: status of the array file on the server
     """
     client: "HttpxClient" = ctx.extra["httpx_client"]
-    node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
+    node = get_node_of(ctx.extra["hash_ring"], array)
     id_, _ = get_id_and_primary_attributes(array)
     url = node.url / f"{get_api_version()}/collection/{array.collection}/array/by-id/{id_}/status"
     response = client.get(url.raw_url)
@@ -162,7 +177,7 @@ def _node_holding_array(array: BaseArray | dict, ctx: CTX, should_check_status: 
             raise TypeError(f"Status of an array can be checked by its instance only, got {type(array)}")
         status = check_status(ctx, array)
         if status == Status.MOVED:
-            return ctx.extra["hash_ring_target"].get_node(get_hash_key(array))
+            return get_node_of(ctx.extra["hash_ring_target"], array)
     return initial_node
 
 
@@ -200,7 +215,7 @@ def request_in_cluster(
     check(token)
     client = ctx.extra["httpx_client"]
 
-    base_node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
+    base_node = get_node_of(ctx.extra["hash_ring"], array)
 
     target_node = _node_holding_array(array, ctx, should_check_status, base_node)
     try:

@@ -18,6 +18,7 @@ from deker.types import ArrayMeta, Data, Numeric, Slice
 from deker.types.private.typings import ArrayT
 from deker.uri import Uri
 from deker_tools.cancel import check, mark_started, resolve_timeout
+from deker_tools.hash_ring import HashRing
 from deker_tools.slices import slices_to_str
 from deker_tools.typings import SentinelType, is_sentinel
 from httpx import Response, Timeout, TimeoutException
@@ -44,7 +45,6 @@ from deker_server_adapters.errors import (
     DekerTimeoutServer,
     FilteringByIdInClusterIsForbidden,
 )
-from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils.requests import make_request, request_in_cluster
 

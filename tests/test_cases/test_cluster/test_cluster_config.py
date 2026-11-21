@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from deker.ctx import CTX
+from deker_tools.hash_ring import HashRing
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.cluster_config import (
@@ -13,7 +14,6 @@ from deker_server_adapters.cluster_config import (
     request_and_apply_config,
 )
 from deker_server_adapters.errors import DekerClusterError, DekerServerError
-from deker_server_adapters.hash_ring import HashRing
 
 
 def test_config_without_leader_is_rejected(mocked_ping: dict):

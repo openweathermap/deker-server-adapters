@@ -11,6 +11,7 @@ import pytest
 from cantok import DefaultToken
 from deker.arrays import Array
 from deker.ctx import CTX
+from deker_tools.hash_ring import get_hash_key
 from deker_tools.typings import Sentinel
 from pytest_httpx import HTTPXMock
 
@@ -18,7 +19,6 @@ from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.errors import DekerServerError, FilteringByIdInClusterIsForbidden
 from deker_server_adapters.models import Status
-from deker_server_adapters.utils.hashing import get_hash_key
 
 if TYPE_CHECKING:
     from httpx import Request

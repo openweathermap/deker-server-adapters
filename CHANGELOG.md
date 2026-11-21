@@ -23,8 +23,11 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
   collection when every value fits, NumPy arrays and scalars must match the dtype exactly, a
   number fills the whole region. A wrong value raises `DekerValidationError` on the client instead
   of a server error or a silent write.
-- The hash ring raises `HashRingError` when a key finds no node, instead of returning `None`; the
-  ring is generic over the node type.
+- The hash ring and the key of an array on it moved to `deker_tools.hash_ring`: the modules
+  `deker_server_adapters.hash_ring` and `deker_server_adapters.utils.hashing` are removed, import `HashRing`,
+  `get_hash_key` and the other functions from deker-tools. The placement of the arrays on the nodes is the
+  same. A ring without nodes or an array without a key raises `HashRingError` of the adapters, instead of
+  returning `None`; the ring is generic over the node type.
 - The adapter interfaces are generic over the path and the array type (`deker` 2.0.0); the
   methods of a closed context raise `DekerAdapterClosedError`.
 - The errors of the locks of DEKER™ reach the client as the same errors: a held array (a `423`
@@ -41,8 +44,8 @@ Released together with DEKER™ 2.0.0; requires `deker>=2,<3` and `deker-tools>=
   `clear` and `delete` of the collection adapter. `make_request` and `request_in_cluster` take a keyword-only
   `token`.
 - An argument that is not given is left out instead of passed as `None`: `DekerServerError` and its
-  subclasses without a response take no `response` (the `message` defaults to an empty string), `HashRing`
-  without weights takes no `weights`, `make_request` and `request_in_cluster` without extra arguments of the
+  subclasses without a response take no `response` (the `message` defaults to an empty string),
+  `make_request` and `request_in_cluster` without extra arguments of the
   request take no `request_kwargs`, and without a list for the failures no `failures`.
 
 ### Added

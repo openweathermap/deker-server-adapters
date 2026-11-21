@@ -6,6 +6,7 @@ from logging import getLogger
 from cantok import DefaultToken
 from deker.ctx import CTX
 from deker.uri import Uri
+from deker_tools.hash_ring import HashRing
 from deker_tools.typings import Sentinel
 
 from deker_server_adapters.consts import (
@@ -16,7 +17,6 @@ from deker_server_adapters.consts import (
     TIMEOUTS_KEY,
 )
 from deker_server_adapters.errors import DekerClusterError, DekerServerError
-from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.utils.requests import make_request
 from deker_server_adapters.utils.version import get_api_version
 
