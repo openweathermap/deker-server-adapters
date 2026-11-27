@@ -139,6 +139,22 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
             f"Couldn't clear the collection {collection.name}",
         )
 
+    @check_ctx_state
+    def empty_trash(self, *, background: bool) -> None:
+        """Remove everything from the trash of the server: ``DELETE /trash``.
+
+        :param background: the server answers at once and removes in the background, its error goes to its log
+        :raises DekerClusterError: if the server answered 503: it cannot take the request now
+        :raises DekerTimeoutError: if the server answered 504
+        :raises DekerServerError: if the server answered anything else but 200, for instance 500 when the trash is not
+          emptied completely
+        """
+        response = self.client.delete(f"/{get_api_version()}/trash", params={"background": str(background).lower()})
+        if response.status_code == STATUS_OK:
+            return
+
+        raise_for_status(response, "The trash wasn't emptied")
+
     @property
     def collections_resource(self) -> Uri:
         """Get the uri of the collections resource of the server."""

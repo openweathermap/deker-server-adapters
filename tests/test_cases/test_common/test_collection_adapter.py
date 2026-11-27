@@ -8,7 +8,7 @@ import pytest
 
 from cantok import DefaultToken, SimpleToken
 from deker.collection import Collection
-from deker.errors import DekerCollectionAlreadyExistsError, DekerCollectionNotExistsError
+from deker.errors import DekerCollectionAlreadyExistsError, DekerCollectionNotExistsError, DekerTimeoutError
 from deker_tools.cancel import TokenCancelledError, cancellation_scope, write_token
 from deker_tools.typings import Sentinel, SentinelType
 from pytest_httpx import HTTPXMock
@@ -256,3 +256,50 @@ def test_a_write_cancelled_from_outside(
 
     assert scope.cancelled
     assert len(collection_requests(httpx_mock)) == sent
+
+
+@pytest.mark.parametrize("background", [True, False])
+def test_empty_trash_sends_the_deletion_of_the_trash(
+    collection_adapter: ServerCollectionAdapter, httpx_mock: HTTPXMock, background: bool
+):
+    httpx_mock.add_response(method="DELETE", url=re.compile(r".*/v1/trash.*"), status_code=200)
+    assert collection_adapter.empty_trash(background=background) is None
+    (request,) = httpx_mock.get_requests()
+    assert request.method == "DELETE"
+    assert request.url.path == "/v1/trash"
+    assert dict(request.url.params) == {"background": str(background).lower()}
+
+
+def test_empty_trash_500_is_a_server_error_with_the_text_of_the_server(
+    collection_adapter: ServerCollectionAdapter, httpx_mock: HTTPXMock
+):
+    message = "The trash is not emptied completely: the server failed to remove all its files"
+    httpx_mock.add_response(method="DELETE", status_code=500, json={"code": 500, "message": message})
+    with pytest.raises(DekerServerError) as info:
+        collection_adapter.empty_trash(background=False)
+    assert str(info.value).startswith("The trash wasn't emptied \nResponse: status=500")
+    assert message in str(info.value)
+
+
+def test_empty_trash_503_is_a_cluster_error_with_the_seconds_to_wait(
+    collection_adapter: ServerCollectionAdapter, httpx_mock: HTTPXMock
+):
+    message = "Cluster has no leader at the moment, try again later"
+    httpx_mock.add_response(
+        method="DELETE",
+        status_code=503,
+        json={"code": 503, "message": message, "class": "ClusterUnavailableError"},
+        headers={"Retry-After": "1"},
+    )
+    with pytest.raises(DekerClusterError, match=re.escape(message)) as info:
+        collection_adapter.empty_trash(background=True)
+    assert info.value.retry_after == 1
+
+
+def test_empty_trash_504_is_a_timeout_error_with_the_text_of_the_server(
+    collection_adapter: ServerCollectionAdapter, httpx_mock: HTTPXMock
+):
+    message = "The timeout of the operation is over"
+    httpx_mock.add_response(method="DELETE", status_code=504, json={"code": 504, "message": message})
+    with pytest.raises(DekerTimeoutError, match=f"^The trash wasn't emptied: {re.escape(message)}$"):
+        collection_adapter.empty_trash(background=False)
