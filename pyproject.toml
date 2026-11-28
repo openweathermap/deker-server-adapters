@@ -3,27 +3,23 @@
                                 ###############
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
 
-
-[tool.poetry]
+[project]
 name = "deker_server_adapters"
-version = "0.0.0"
+dynamic = ["version"]  # version comes from the git tag (uv-dynamic-versioning)
 description = "Plugin with server adapters for Deker"
-authors = ["OpenWeather <info@openweathermap.org>"]
+authors = [{ name = "OpenWeather", email = "info@openweathermap.org" }]
 license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 readme = "README.md"
-packages = [{include = "deker_server_adapters"}]
-documentation = 'https://docs.deker.io/'
-homepage = 'https://deker.io/'
-repository = 'https://github.com/openweathermap/deker-server-adapters'
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Operating System :: Unix",
     "Operating System :: POSIX :: Linux",
@@ -36,57 +32,76 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
+dependencies = [
+    "httpx>=0.28.1,<1",
+]
 
-[tool.poetry-dynamic-versioning]
+[project.urls]
+documentation = "https://docs.deker.io/"
+homepage = "https://deker.io/"
+repository = "https://github.com/openweathermap/deker-server-adapters"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
 vcs = "git"
 style = "semver"
 metadata = false
 
-[[tool.poetry.source]]
-name = "PyPI"
-priority = "primary"
+[tool.hatch.build.targets.wheel]
+packages = ["deker_server_adapters"]
 
-[[tool.poetry.source]]
+[tool.hatch.build.targets.sdist]
+include = ["deker_server_adapters"]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+
+[[tool.uv.index]]
 name = "testpypi"
 url = "https://test.pypi.org/simple/"
-priority = "supplemental"
+
+[tool.uv]
+default-groups = ["dev", "docs"]
+
+[tool.uv.sources]
+deker = { path = "../deker", editable = true }
+deker-tools = { path = "../deker-tools", editable = true }
+
 
                                 ####################
                                 ### DEPENDENCIES ###
                                 ####################
 
-[tool.poetry.dependencies]
-python = "^3.10"
-httpx = ">=0.28.1,<1"
-
-[tool.poetry.group.dev.dependencies]
-black = ">=26.10.1"
-coverage = ">=7.16.2"
-darglint = ">=1.8.1"
-ruff = ">=0.17.2"
-isort = ">=9.0.2"
-mypy = ">=2.4.0"
-mypy-extensions = ">=1.1.0"
-pep8-naming = ">=0.15.1"
-pre-commit = ">=4.6.2"
-ssort = ">=0.17.0"
-pycln = ">=2.6.0"
-pytest = ">=9.1.1"
-pytest-cov = ">=7.1.0"
-pytest-sugar = ">=1.1.1"
-pytest-mock = ">=3.17.0"
-flake8-pyproject = ">=1.2.4"
-pytest-random-order = ">=1.2.0"
-deker = ">=1.2.0b1,<2"
-pytest-httpx = ">=0.36.2"
-
-[tool.poetry.group.docs.dependencies]
-docutils = ">=0.21.2"
-m2r2 = ">=2.1.0"
-sphinx-rtd-theme = ">=3.1.0"
-enum_tools = ">=0.13.0"
-sphinx_toolbox = ">=4.3.1"
-doc8 = ">=2.0.0"
+[dependency-groups]
+dev = [
+    "ruff>=0.17.2",
+    "ssort>=0.17.0",
+    "pyupgrade>=3.19.0",
+    "pydoclint>=0.6.0",
+    "mypy>=2.4.0",
+    "mypy-extensions>=1.1.0",
+    "pre-commit>=4.6.2",
+    "coverage>=7.16.2",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-sugar>=1.1.1",
+    "pytest-random-order>=1.2.0",
+    "pytest-mock>=3.17.0",
+    "pytest-httpx>=0.36.2",
+    "pytest-timeout>=2.4.0",
+    "deker>=2.0.0b1,<3",
+]
+docs = [
+    "docutils>=0.21.2",
+    "m2r2>=2.1.0",
+    "sphinx-rtd-theme>=3.1.0",
+    "enum_tools>=0.13.0",
+    "sphinx_toolbox>=4.3.1",
+    "doc8>=2.0.0",
+]
 
                                     #############
                                     ### TOOLS ###
@@ -96,32 +111,36 @@ doc8 = ">=2.0.0"
         # FORMATTERS #
         ##############
 
-# https://black.readthedocs.io/en/stable/
-[tool.black]
+[tool.ruff]  # code formatter and linter
+# https://docs.astral.sh/ruff/
+target-version = "py310"
 line-length = 120
-target-version = ['py310']
-include = '\.pyi?$'
+extend-exclude = [
+    "examples",
+    "tmp",
+    "tmp.py",
+]
 
+[tool.ruff.format]
+# defaults are equal to black: double quotes, 4 spaces, magic trailing comma
+docstring-code-format = false
 
-# https://pycqa.github.io/isort/
-[tool.isort]
-py_version = 310
-sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
-known_local_folder = ['deker_server_adapters', ]
-profile = 'black'
-atomic = true
-include_trailing_comma = true
-line_length = 120
-lines_between_types = 1
-multi_line_output = 3
-extend_skip = ['.md', '.json']
+[tool.ruff.lint.isort]
+# https://docs.astral.sh/ruff/settings/#lint_isort
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+lines-after-imports = -1  # as isort did: 2 lines before a def/class, 1 otherwise
+lines-between-types = 1
+known-local-folder = ["deker_server_adapters"]
+known-third-party = [
+    "deker",
+    "deker_tools",
+]
+extra-standard-library = ["zoneinfo"]
 
         ###########
         # LINTERS #
         ###########
 
-# https://mypy.readthedocs.io/en/stable/
-# https://pypi.org/project/mypy-extensions/
 [tool.mypy]
 python_version = '3.10'
 ignore_missing_imports = true
@@ -149,38 +168,20 @@ exclude = [
 module = "tests/*"
 disallow_untyped_defs = false
 
-[tool.flake8]  # code linter
-# https://flake8.pycqa.org/en/latest/
-# https://pypi.org/project/flake8-bugbear
-# https://pypi.org/project/flake8-docstrings/
-# https://pypi.org/project/flake8-import-order/
-# https://pypi.org/project/flake8-pytest-style/
-# https://pypi.org/project/pep8-naming/
-min_python_version = 3.10
-max-complexity = 15
-max-doc-length = 120
-max-line-length = 120
-strictness = "full"
-docstring_style = "sphinx"
-docstring-convention = "pep257"
-application_import_names = "deker_server_adapters"
-import-order-style = "pycharm"
-exclude = [
-    "venv/*",
-    ".venv/*",
-    ".git/*",
-    "__pycache__/*",
-    ".mypy_cache/*",
-    ".pytest_cache/*",
-    ".idea/*",
-    "examples/*",
-    "tmp/*",
-    "tests/*",
-    "tmp.py"
-]
-
-extend-select = ["D417"]
+[tool.ruff.lint]  # code linter
+# https://docs.astral.sh/ruff/rules/
+# E, W   - pycodestyle          (flake8 core)
+# F      - pyflakes             (flake8 core)
+# C90    - mccabe               (flake8 core)
+# B      - flake8-bugbear
+# D      - pydocstyle           (flake8-docstrings)
+# I      - isort                (isort + flake8-import-order)
+# N      - pep8-naming
+# PT     - flake8-pytest-style
+# TID251 - flake8-tidy-imports banned-api: no `from __future__ import annotations`
+select = ["E", "W", "F", "C90", "B", "D", "I", "N", "PT", "TID251", "G"]
 ignore = [
+    "B9",  # flake8-bugbear "opinionated" rules: opt-in in flake8, were never enabled
     "B012",
     "B019",
     "D100",
@@ -192,78 +193,53 @@ ignore = [
     "D401",
     "D403",
     "D404",
-    "DAR002",
-    "DAR003",
-    "DAR104",
-    "DAR105",
-    "DAR201",
-    "DAR301",
-    "DAR401",
-    "DAR501",
-    "I101",
-    "I201",
-    "I202",
     "N807",
     "N813",
-    "W503",
-    "W504",
+    "N818",  # exception names without the Error suffix are public API; same as in deker
 ]
 
-[tool.pycln]  # imports linter
-# https://hadialqattan.github.io/pycln/#/README
-all = true
-diff = true
-exclude = "venv/*,.venv/*,.git/*,__pycache__/*,examples/*"
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 120
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__.annotations".msg = "from __future__ import annotations is forbidden here: annotations must stay real objects"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "D",      # docstrings are not required in tests
+    "N802",   # test data factories keep their names
+    "N805",
+    "PT008",  # existing test structure stays as written: patch(lambda), raises/warns blocks,
+    "PT011",  # composite assertions, duplicate parametrize cases
+    "PT012",
+    "PT014",
+    "PT017",
+    "PT018",
+    "PT031",
+    "B018",   # a property access that is expected to raise
+]
+
+[tool.pydoclint]  # docstring vs signature linter (darglint replacement)
+# https://jsh9.github.io/pydoclint/
+style = "sphinx"
+exclude = '\.git|\.venv|venv|\.eggs|tests|docs|examples|tmp|tmp\.py'
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-yield-types = false
+skip-checking-raises = true
+check-class-attributes = false
+check-arg-order = false  # darglint did not check the order either
+allow-init-docstring = true  # __init__ may keep its own docstring, as it does now
 
 [tool.doc8]  # RST linter
 # https://github.com/PyCQA/doc8
 max-line-length = 99
-
-[tool.ruff]
-target-version = "py310"
-line-length = 120
-select = ["ALL"]
-ignore = [
-    "A003",
-    "A002",
-    "ANN101",
-    "ANN204",
-    "ANN401",
-    "ARG002",
-    "B904",
-    "BLE001",
-    "D100",
-    "D105",
-    "D107",
-    "FA100",
-    "ISC001",
-    "N818",
-    "PGH004",
-    "PLR0913",
-    "SLF001",
-    "TRY200",
-    "TRY301",
-    "UP006",
-    "UP035",
-    "COM812"
-]
-
-[tool.ruff.pydocstyle]
-convention = "pep257"
-
-[tool.ruff.mccabe]
-max-complexity = 3
-
-[tool.ruff.pycodestyle]
-max-doc-length = 120
-
-[tool.ruff.isort]
-section-order = ['future', 'standard-library', 'third-party', 'first-party', 'local-folder']
-lines-after-imports = 2
-lines-between-types = 1
-known-local-folder = ["deker_server_adapters"]
-known-third-party = ["deker", "deker_tools"]
-extra-standard-library = ["zoneinfo"]
 
         #########
         # TESTS #
@@ -298,14 +274,14 @@ omit = [
 directory = "tests/code_coverage"
 
 [tool.coverage.report]
-fail_under=80
+fail_under=100
 exclude_lines = [
     "no cov",
     "pragma: no cover",
     "if typing.TYPE_CHECKING:",
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
-    "pass",
+    '^\s*pass\s*$',
     "raise NotImplementedError",
     "except ImportError",
     "except ModuleNotFoundError",

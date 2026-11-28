@@ -1,18 +1,25 @@
 import re
+import string
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Literal
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 from uuid import uuid4
 
+import httpx
+import numpy as np
 import pytest
 
-from deker import ArraySchema, AttributeSchema, DimensionSchema, VArraySchema
+from cantok import AbstractToken, DefaultToken, SimpleToken, TimeoutToken
+from deker import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.config import DekerConfig
 from deker.ctx import CTX
 from deker.uri import Uri
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from deker_tools.cancel import TokenCancelledError, TokenTimeoutError
+from deker_tools.typings import Sentinel, SentinelType
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -20,20 +27,77 @@ from deker_server_adapters.cluster_config import apply_config
 from deker_server_adapters.collection_adapter import ServerCollectionAdapter
 from deker_server_adapters.consts import LAST_MODIFIED_HEADER, NORMAL_STATUS, REBALANCING_STATUS
 from deker_server_adapters.factory import AdaptersFactory
-from deker_server_adapters.hash_ring import HashRing
 from deker_server_adapters.httpx_client import HttpxClient
 from deker_server_adapters.utils.version import get_api_version
 from deker_server_adapters.varray_adapter import ServerVarrayAdapter
 
-
 CLUSTER_MODE = "cluster"
 SINGLE_MODE = "single"
+# the adapter methods that take no timeout and no token: they neither change nor read the data
+UNTIMED_METHODS = frozenset({"read_meta", "read", "is_deleted"})
+
+
+def operation_kwargs(method: str) -> dict:
+    """Keyword arguments of a collection adapter method called outside any operation: no timeout, a token never
+    cancelled; the deletion and the clearing take no timeout and empty the trash before they return.
+    """
+    if method in UNTIMED_METHODS:
+        return {}
+    if method in ("delete", "clear"):
+        return {"background": False, "_empty_trash": True, "token": DefaultToken()}
+    return {"timeout": Sentinel, "token": DefaultToken()}
+
+
+def write_kwargs(method: str, *, timeout: int | SentinelType, token: AbstractToken) -> dict:
+    """Keyword arguments of a method of an Array or a VArray adapter: its deletion takes no timeout.
+
+    :param method: the method
+    :param timeout: the timeout of the call, for every method but the deletion
+    :param token: the token of the call
+    :returns: the keyword arguments; the deletion empties the trash before it returns
+    """
+    if method == "delete":
+        return {"background": False, "_empty_trash": True, "token": token}
+    return {"timeout": timeout, "token": token}
+
+
+def array_operation_kwargs(method: str) -> dict:
+    """Keyword arguments of a method of an Array or a VArray adapter called outside any operation.
+
+    :param method: the method
+    :returns: no timeout, a token never cancelled; nothing for a method that takes neither
+    """
+    if method in UNTIMED_METHODS:
+        return {}
+    return write_kwargs(method, timeout=Sentinel, token=DefaultToken())
+
+
+# the kinds of the tokens fired before a call and the errors of deker-tools they raise
+FIRED_TOKENS = [
+    pytest.param("cancelled", TokenCancelledError, id="cancelled"),
+    pytest.param("timed-out", TokenTimeoutError, id="timed-out"),
+]
+
+
+def fired_token(kind: str) -> AbstractToken:
+    """Build a token fired before the call: cancelled from outside, or with its time over."""
+    if kind == "timed-out":
+        return TimeoutToken(0)
+    token = SimpleToken()
+    token.cancel()
+    return token
+
+
+def cancel_and_answer(scope: SimpleToken, status: int, body: bytes, request: httpx.Request) -> httpx.Response:
+    """Cancel the scope while the server holds the request and answer it: the client went away during the request."""
+    scope.cancel()
+    return httpx.Response(status, content=body)
 
 
 pytest_plugins = ["tests.plugins.cluster"]
 
 
-def pytest_collection_modifyitems(items: List[pytest.Item]) -> None:
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     # keep pytest-httpx<0.31 semantics: responses are reusable, unmatched requests just time out (cluster failover)
     for item in items:
         item.add_marker(
@@ -51,7 +115,7 @@ def status(request) -> str:
     return request.param
 
 
-@pytest.fixture()
+@pytest.fixture
 def base_uri(mode, base_cluster_uri):
     if mode == SINGLE_MODE:
         return Uri.create("http://localhost:8000")
@@ -59,18 +123,19 @@ def base_uri(mode, base_cluster_uri):
     return base_cluster_uri
 
 
-@pytest.fixture()
+@pytest.fixture
 def collection_path(base_uri: Uri, collection: Collection) -> Uri:
     return base_uri / f"{get_api_version()}/collection/{collection.name}"
 
 
-@pytest.fixture()
-def ctx(mode, base_uri: Uri, nodes: List[dict], mocked_ping: dict) -> CTX:
+@pytest.fixture
+def ctx(mode, base_uri: Uri, nodes: list[dict], mocked_ping: dict) -> CTX:
     ctx = CTX(
         uri=base_uri,
         config=DekerConfig(
             uri=str(base_uri.raw_url),
             workers=1,
+            read_timeout=3,
             write_lock_timeout=1,
             write_lock_check_interval=1,
             memory_limit=40000,
@@ -87,8 +152,8 @@ def ctx(mode, base_uri: Uri, nodes: List[dict], mocked_ping: dict) -> CTX:
         yield ctx
 
 
-@pytest.fixture()
-def mock_ping(mode: str, httpx_mock: HTTPXMock, mocked_ping: Dict):
+@pytest.fixture
+def mock_ping(mode: str, httpx_mock: HTTPXMock, mocked_ping: dict):
     if mode == CLUSTER_MODE:
         httpx_mock.add_response(
             method="GET", url=re.compile(r".*\/v1\/ping.*"), json=mocked_ping, headers={LAST_MODIFIED_HEADER: "foo"}
@@ -97,12 +162,12 @@ def mock_ping(mode: str, httpx_mock: HTTPXMock, mocked_ping: Dict):
         httpx_mock.add_response(method="GET", url=re.compile(r".*\/v1\/ping.*"), status_code=200)
 
 
-@pytest.fixture()
+@pytest.fixture
 def adapter_factory(mode: str, ctx: CTX, base_uri: Uri, mock_ping) -> AdaptersFactory:
     return AdaptersFactory(ctx, uri=base_uri)
 
 
-@pytest.fixture()
+@pytest.fixture
 def server_array_adapter(collection_path: Uri, ctx: CTX, adapter_factory) -> ServerArrayAdapter:
     return ServerArrayAdapter(
         collection_path,
@@ -112,7 +177,7 @@ def server_array_adapter(collection_path: Uri, ctx: CTX, adapter_factory) -> Ser
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def server_varray_adapter(collection_path: Uri, ctx: CTX, adapter_factory) -> ServerVarrayAdapter:
     return ServerVarrayAdapter(
         collection_path,
@@ -122,12 +187,12 @@ def server_varray_adapter(collection_path: Uri, ctx: CTX, adapter_factory) -> Se
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def collection_adapter(ctx: CTX) -> ServerCollectionAdapter:
     return ServerCollectionAdapter(ctx)
 
 
-@pytest.fixture()
+@pytest.fixture
 def collection(adapter_factory: AdaptersFactory, collection_adapter: ServerCollectionAdapter) -> Collection:
     array_schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=1)], dtype=int)
     return Collection(
@@ -160,7 +225,7 @@ def collection_with_primary_attributes(
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def varray_collection(collection_adapter: ServerCollectionAdapter, adapter_factory: AdaptersFactory) -> Collection:
     varray_schema = VArraySchema(dimensions=[DimensionSchema(name="x", size=1)], dtype=int, vgrid=(1,))
     return Collection(
@@ -172,7 +237,7 @@ def varray_collection(collection_adapter: ServerCollectionAdapter, adapter_facto
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def varray_collection_with_primary_attributes(
     collection_adapter: ServerCollectionAdapter, adapter_factory: AdaptersFactory
 ) -> Collection:
@@ -194,24 +259,24 @@ def varray_collection_with_primary_attributes(
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def primary_attributes() -> dict:
     return {"foo": "bar", "bar": "baz"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def array(collection: Collection, server_array_adapter: ServerArrayAdapter) -> Array:
     return Array(collection, server_array_adapter)
 
 
-@pytest.fixture()
+@pytest.fixture
 def array_with_attributes(
     collection_with_primary_attributes: Collection, server_array_adapter: ServerArrayAdapter, primary_attributes: dict
 ) -> Array:
     return Array(collection_with_primary_attributes, server_array_adapter, primary_attributes=primary_attributes)
 
 
-@pytest.fixture()
+@pytest.fixture
 def varray(varray_collection: Collection, adapter_factory: AdaptersFactory) -> VArray:
     """Returns an instance of VArray."""
     return VArray(
@@ -224,7 +289,77 @@ def varray(varray_collection: Collection, adapter_factory: AdaptersFactory) -> V
     )
 
 
-@pytest.fixture()
+# The arrays of the bounds tests: 10x10x10 with a plain axis, a labelled axis and a time axis, as on the server.
+# The bounds do not depend on the mode of the client nor on the status of the cluster, and the tests are many
+# (every index expression of DEKER), so the context, the factory and the arrays are built once per module
+# on a single server that answers nothing: the tests mock the responses they need.
+BOUNDS_START = datetime.fromtimestamp(1663200000, tz=timezone.utc)
+BOUNDS_DIMENSIONS = [
+    DimensionSchema(name="x", size=10),
+    DimensionSchema(name="layers", size=10, labels=list(string.ascii_lowercase)[:10]),
+    TimeDimensionSchema(name="forecast_dt", size=10, start_value=BOUNDS_START, step=timedelta(days=3)),
+]
+
+
+@pytest.fixture(scope="module")
+def bounds_factory() -> AdaptersFactory:
+    """The factory of the bounds tests, on a single server that is not asked anything at creation."""
+    uri = Uri.create("http://localhost:8000")
+    ctx = CTX(
+        uri=uri,
+        config=DekerConfig(
+            uri=str(uri.raw_url),
+            workers=1,
+            read_timeout=3,
+            write_lock_timeout=1,
+            write_lock_check_interval=1,
+            memory_limit=40000,
+        ),
+        storage_adapter=HDF5StorageAdapter,
+        executor=ThreadPoolExecutor(max_workers=1),
+    )
+    with patch("deker_server_adapters.factory.request_and_apply_config"):
+        factory = AdaptersFactory(ctx, uri=uri)
+    try:
+        yield factory
+    finally:
+        factory.close()
+
+
+@pytest.fixture(scope="module")
+def bounds_array(bounds_factory: AdaptersFactory) -> Array:
+    """A 10x10x10 int32 array with a labelled and a time axis for the bounds tests."""
+    collection = Collection(
+        name="bounds",
+        schema=ArraySchema(dimensions=BOUNDS_DIMENSIONS, dtype=np.int32),
+        adapter=bounds_factory.get_collection_adapter(),
+        factory=bounds_factory,
+        storage_adapter=HDF5StorageAdapter,
+    )
+    return Array(collection, bounds_factory.get_array_adapter(collection.path, storage_adapter=HDF5StorageAdapter))
+
+
+@pytest.fixture(scope="module")
+def bounds_varray(bounds_factory: AdaptersFactory) -> VArray:
+    """A 10x10x10 int32 varray of 2x2x2 Arrays with a labelled and a time axis for the bounds tests."""
+    collection = Collection(
+        name="bounds_v",
+        schema=VArraySchema(dimensions=BOUNDS_DIMENSIONS, dtype=np.int32, vgrid=(2, 2, 2)),
+        adapter=bounds_factory.get_collection_adapter(),
+        factory=bounds_factory,
+        storage_adapter=HDF5StorageAdapter,
+    )
+    return VArray(
+        collection=collection,
+        adapter=bounds_factory.get_varray_adapter(collection.path, storage_adapter=HDF5StorageAdapter),
+        array_adapter=bounds_factory.get_array_adapter(collection.path, storage_adapter=HDF5StorageAdapter),
+        primary_attributes={},
+        custom_attributes={},
+        id_=str(uuid4()),
+    )
+
+
+@pytest.fixture
 def varray_with_attributes(
     varray_collection_with_primary_attributes: Collection, adapter_factory: AdaptersFactory, primary_attributes: dict
 ) -> VArray:
@@ -238,17 +373,17 @@ def varray_with_attributes(
     )
 
 
-@pytest.fixture()
-def rate_limits_headers() -> Dict:
+@pytest.fixture
+def rate_limits_headers() -> dict:
     return {"RateLimit-Limit": "10", "RateLimit-Remaining": "10", "RateLimit-Reset": "60"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def array_url_path(array: Array) -> str:
     return f"/{get_api_version()}/collection/{array.collection}/array/by-id/{array.id}"
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_status(mode: str, request: pytest.FixtureRequest, status: str):
     if mode == CLUSTER_MODE and status == REBALANCING_STATUS:
         request.getfixturevalue("mocked_filestatus_check_unmoved")

@@ -7,7 +7,7 @@ from deker_server_adapters.errors import DekerDataPointsLimitError, DekerRateLim
 from deker_server_adapters.httpx_client import HttpxClient
 
 
-@pytest.mark.parametrize(("method", "kwargs"), (("get", {}), ("post", {}), ("put", {})))
+@pytest.mark.parametrize(("method", "kwargs"), [("get", {}), ("post", {}), ("put", {})])
 def test_rate_limits(httpx_mock: HTTPXMock, rate_limits_headers, method, kwargs):
     httpx_mock.add_response(status_code=429, headers=rate_limits_headers)
     with HttpxClient(base_url="http://localhost:8000") as client:
@@ -21,7 +21,7 @@ def test_rate_limits(httpx_mock: HTTPXMock, rate_limits_headers, method, kwargs)
         assert str(e.value.remaining) == rate_limits_headers["RateLimit-Remaining"]
 
 
-@pytest.mark.parametrize(("method", "kwargs"), (("get", {}), ("post", {}), ("put", {})))
+@pytest.mark.parametrize(("method", "kwargs"), [("get", {}), ("post", {}), ("put", {})])
 def test_data_point_limits(httpx_mock: HTTPXMock, rate_limits_headers, method, kwargs):
     httpx_mock.add_response(status_code=413, headers=rate_limits_headers, json={"class": "DekerDatapointError"})
     with HttpxClient(base_url="http://localhost:8000") as client:

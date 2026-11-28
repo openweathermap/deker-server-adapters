@@ -1,17 +1,19 @@
-import traceback
-
 from logging import getLogger
 from random import randint
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING
 
+from cantok import AbstractToken
 from deker.ABC import BaseArray
 from deker.ctx import CTX
+from deker_tools.cancel import check
+from deker_tools.hash_ring import HashRing, get_hash_key, get_id_and_primary_attributes
+from deker_tools.hash_ring import HashRingError as RingError
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 from httpx import Response
 
 from deker_server_adapters.consts import REBALANCING_STATUS, STATUS_OK
-from deker_server_adapters.errors import DekerServerError, InvalidConfigHash
+from deker_server_adapters.errors import DekerServerError, HashRingError, InvalidConfigHash
 from deker_server_adapters.models import Status
-from deker_server_adapters.utils.hashing import get_hash_key, get_id_and_primary_attributes
 from deker_server_adapters.utils.version import get_api_version
 
 if TYPE_CHECKING:
@@ -26,62 +28,121 @@ def _request(
     node: str,
     client: "HttpxClient",
     method: str = "GET",
-    request_kwargs: Optional[Dict] = None,
+    request_kwargs: dict | SentinelType = Sentinel,
     retry_on_hash_failure: bool = False,
-) -> Optional[Response]:
-    """Internal request func - Make GET request on given node.
+    stream: bool = False,
+    failures: list[str] | SentinelType = Sentinel,
+) -> Response | None:
+    """Send one request to the given node; a node that fails is logged and answers ``None``.
+
+    The reason of the failure is logged in one line at the error level, with the traceback at the debug level,
+    and is appended to ``failures`` as ``node: reason`` when the caller gave a list for it.
 
     :param url: What we request
     :param retry_on_hash_failure: If we should retry on invalid hash
     :param node: Node for requesting
     :param client: Httpx Client
     :param method: Http method
-    :param request_kwargs: Kwargs for request
+    :param request_kwargs: Kwargs for request; not given - none
+    :param stream: leave the body of a successful response unread
+    :param failures: where the reasons of the failures are collected, if the caller needs them; not given - nowhere
+    :returns: response, or ``None`` if the node did not answer
+    :raises InvalidConfigHash: if the cluster config changed and the request is not to be retried
     """
     response = None
     request_url = f"{node.rstrip('/')}/{url.lstrip('/')}"
-    request_kwargs = request_kwargs or {}
+    kwargs = {} if is_sentinel(request_kwargs) else request_kwargs
     try:
-        response = client.request(method, request_url, **request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
+        response = client.request(
+            method, request_url, **kwargs, retry_on_hash_failure=retry_on_hash_failure, stream=stream
+        )
     except InvalidConfigHash:
         raise
     except Exception as e:
-        traceback.print_exc(-1)
-        logger.exception(f"Coudn't get response from {node}", exc_info=e)  # noqa
+        logger.error("Could not get a response from %s: %s", node, e)
+        logger.debug("The failure of the request to %s", node, exc_info=e)
+        if not is_sentinel(failures):
+            failures.append(f"{node}: {e}")
 
     return response
 
 
 def make_request(
     url: str,
-    nodes: Union[List, Tuple, Set],
+    nodes: list | tuple | set,
     client: "HttpxClient",
     method: str = "GET",
-    request_kwargs: Optional[Dict] = None,
+    request_kwargs: dict | SentinelType = Sentinel,
     retry_on_hash_failure: bool = False,
-) -> Optional[Response]:
-    """Make GET request on random node, while response is not received.
+    stream: bool = False,
+    failures: list[str] | SentinelType = Sentinel,
+    *,
+    token: AbstractToken,
+) -> Response | None:
+    """Send the request to the nodes in random order until one answers with 200; a single node is asked once.
+
+    The token is checked before the request to every node: a cancelled operation asks no other node.
 
     :param retry_on_hash_failure: If we should retry on invalid hash
     :param method: HTTP Method
     :param url: What we request
-    :param request_kwargs: Kwargs for request
+    :param request_kwargs: Kwargs for request; not given - none
     :param nodes: Nodes for requesting
     :param client: Httpx Client
+    :param stream: leave the body of a successful response unread
+    :param failures: where the reasons of the nodes that did not answer are collected, if the caller needs them;
+        not given - nowhere
+    :param token: token of the operation the request belongs to
+    :returns: first received response, or ``None`` if no node answered
+    :raises TokenCancelledError: if the token is cancelled before a request is sent
     """
     response = None
     nodes = list(nodes)
     if len(nodes) == 1:
+        check(token)
         node = nodes.pop(0)
-        response = _request(url, node, client, method, request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
+        response = _request(
+            url,
+            node,
+            client,
+            method,
+            request_kwargs,
+            retry_on_hash_failure=retry_on_hash_failure,
+            stream=stream,
+            failures=failures,
+        )
     else:
         while nodes and (response is None or response.status_code != STATUS_OK):
+            check(token)
             index = randint(0, len(nodes) - 1)
             node = nodes.pop(index)
 
-            response = _request(url, node, client, method, request_kwargs, retry_on_hash_failure=retry_on_hash_failure)
+            response = _request(
+                url,
+                node,
+                client,
+                method,
+                request_kwargs,
+                retry_on_hash_failure=retry_on_hash_failure,
+                stream=stream,
+                failures=failures,
+            )
 
     return response
+
+
+def get_node_of(ring: "HashRing[Node]", array: BaseArray | dict) -> "Node":
+    """Get the node of the ring responsible for an array.
+
+    :param ring: hash ring of the cluster
+    :param array: Array instance, or a dict with its id and/or primary attributes
+    :returns: the node of the key of the array
+    :raises HashRingError: if the ring has no nodes, or the array has neither primary attributes nor an id
+    """
+    try:
+        return ring.get_node(get_hash_key(array))
+    except RingError as e:
+        raise HashRingError(str(e)) from None
 
 
 def check_status(ctx: CTX, array: BaseArray) -> Status:
@@ -89,60 +150,92 @@ def check_status(ctx: CTX, array: BaseArray) -> Status:
 
     :param ctx: Application context
     :param array: Instance of array to check
+    :returns: status of the array file on the server
     """
     client: "HttpxClient" = ctx.extra["httpx_client"]
-    node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
+    node = get_node_of(ctx.extra["hash_ring"], array)
     id_, _ = get_id_and_primary_attributes(array)
-    url = node.url / f"{get_api_version()}/cluster/collection/{array.collection}/array/by-id/{id_}/status"
+    url = node.url / f"{get_api_version()}/collection/{array.collection}/array/by-id/{id_}/status"
     response = client.get(url.raw_url)
     if not response or response.status_code != STATUS_OK:
         raise DekerServerError(response, "File status check failed")
     return Status(response.text.replace('"', ""))
 
 
+def _node_holding_array(array: BaseArray | dict, ctx: CTX, should_check_status: bool, initial_node: "Node") -> "Node":
+    """Get the node that holds the array now: while the cluster is rebalancing, a moved array is on the target ring.
+
+    :param array: Array instance, or a dict with its id and/or primary attributes
+    :param ctx: Application context
+    :param should_check_status: whether to ask the server where the array is during a rebalancing
+    :param initial_node: Node to return if there are no updates.
+    :returns: node that currently holds the array
+    :raises TypeError: if the status check is asked for a dict instead of an array instance
+    """
+    if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
+        if not isinstance(array, BaseArray):
+            raise TypeError(f"Status of an array can be checked by its instance only, got {type(array)}")
+        status = check_status(ctx, array)
+        if status == Status.MOVED:
+            return get_node_of(ctx.extra["hash_ring_target"], array)
+    return initial_node
+
+
 def request_in_cluster(
     url: str,
-    array: BaseArray,
+    array: BaseArray | dict,
     ctx: CTX,
     should_check_status: bool = False,
     method: str = "GET",
-    request_kwargs: Optional[dict] = None,
-) -> Optional[Response]:
-    """Make request in cluster.
+    request_kwargs: dict | SentinelType = Sentinel,
+    stream: bool = False,
+    *,
+    token: AbstractToken,
+) -> Response | None:
+    """Send a request to the node of the cluster responsible for the array.
 
-    Before sending request, it retrieves a fresh config from the server.
-    Then, if needed, checks status of file on the server to determine where to send request
+    The node is picked by the hash ring; while the cluster is rebalancing and the status check is asked, the
+    status of the array decides between the current and the target ring. If the server reports that the
+    cluster config changed, the client applies the new config and the request is sent once more to the node
+    picked afresh.
 
     :param url: url which to request
-    :param array: Array instance
+    :param array: Array instance, or a dict with its id and/or primary attributes (then no status check is possible)
     :param ctx: Application context
     :param should_check_status: If we should check whether the file has been moved or not
     :param method: Http method
-    :param request_kwargs: Extra data for request
+    :param request_kwargs: Extra data for request; not given - none
+    :param stream: leave the body of a successful response unread
+    :param token: token of the operation the request belongs to, checked before the status check and the request
+    :returns: response from the node responsible for the array, or ``None`` if it did not answer
+    :raises TokenCancelledError: if the token is cancelled before a request is sent
+    :raises TypeError: if the status check is asked for a dict instead of an array instance
+    :raises DekerServerError: if the status check failed
     """
-
-    def _check_status(initial_node: "Node") -> "Node":
-        """Closure for getting status of config file on the server and retrieving correct node for request.
-
-        :param initial_node: Node to return if there are no updates.
-        """
-        if should_check_status and ctx.extra["cluster_config"].cluster_status == REBALANCING_STATUS:
-            status = check_status(ctx, array)
-            if status == Status.MOVED:
-                return ctx.extra["hash_ring_target"].get_node(get_hash_key(array))
-        return initial_node
-
-    # Retrieve fresh config
+    check(token)
     client = ctx.extra["httpx_client"]
 
-    base_node = ctx.extra["hash_ring"].get_node(get_hash_key(array))
+    base_node = get_node_of(ctx.extra["hash_ring"], array)
 
-    target_node = _check_status(base_node)
-    # Acquire locks
-    # TODO: Lock acquiring logic if needed
-    # Make request
+    target_node = _node_holding_array(array, ctx, should_check_status, base_node)
     try:
-        return make_request(url, [target_node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
+        return make_request(
+            url,
+            [target_node.url.raw_url],
+            client,
+            method=method,
+            request_kwargs=request_kwargs,
+            stream=stream,
+            token=token,
+        )
     except InvalidConfigHash:
-        updated_node = _check_status(target_node)
-        return make_request(url, [updated_node.url.raw_url], client, method=method, request_kwargs=request_kwargs)
+        updated_node = _node_holding_array(array, ctx, should_check_status, target_node)
+        return make_request(
+            url,
+            [updated_node.url.raw_url],
+            client,
+            method=method,
+            request_kwargs=request_kwargs,
+            stream=stream,
+            token=token,
+        )
