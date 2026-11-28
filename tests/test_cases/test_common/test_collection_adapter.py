@@ -63,7 +63,7 @@ def test_collection_delete_success(
     collection: Collection,
 ):
     httpx_mock.add_response()
-    assert collection_adapter.delete(collection=collection, timeout=Sentinel, token=DefaultToken()) is None
+    assert collection_adapter.delete(collection=collection, **operation_kwargs("delete")) is None
 
 
 def test_collection_delete_raises_not_found(
@@ -73,7 +73,7 @@ def test_collection_delete_raises_not_found(
 ):
     httpx_mock.add_response(status_code=404)
     with pytest.raises(DekerCollectionNotExistsError):
-        collection_adapter.delete(collection=collection, timeout=Sentinel, token=DefaultToken())
+        collection_adapter.delete(collection=collection, **operation_kwargs("delete"))
 
 
 def test_collection_read_success(
@@ -101,7 +101,7 @@ def test_collection_clear_success(
     collection: Collection,
 ):
     httpx_mock.add_response()
-    assert collection_adapter.clear(collection, timeout=Sentinel, token=DefaultToken()) is None
+    assert collection_adapter.clear(collection, **operation_kwargs("clear")) is None
 
 
 def test_collection_clear_raises_not_found(
@@ -111,7 +111,7 @@ def test_collection_clear_raises_not_found(
 ):
     httpx_mock.add_response(status_code=404)
     with pytest.raises(DekerCollectionNotExistsError):
-        collection_adapter.clear(collection, timeout=Sentinel, token=DefaultToken())
+        collection_adapter.clear(collection, **operation_kwargs("clear"))
 
 
 def test_client_iter_success(
@@ -143,6 +143,7 @@ def test_client_iter_fails_when_collections_cannot_be_listed(
     [
         pytest.param("create", (), "POST", id="create"),
         pytest.param("delete", (), "DELETE", id="delete"),
+        pytest.param("clear", (), "PUT", id="clear"),
     ],
 )
 def test_unavailable_raises_the_cluster_error_with_the_delay(
@@ -167,13 +168,35 @@ def test_unavailable_raises_the_cluster_error_with_the_delay(
     assert info.value.retry_after == 1
 
 
-# The operations of the collection adapter: the method and the status of the answer of the server on success; the
-# timeout of each request defaults to ``write_lock_timeout`` of the client.
-TIMED_CALLS = [
+# The operations of the collection adapter: the method and the status of the answer of the server on success.
+WRITE_CALLS = [
     pytest.param("create", 201, id="create"),
     pytest.param("delete", 200, id="delete"),
     pytest.param("clear", 200, id="clear"),
 ]
+
+
+def write_kwargs(method: str, token) -> dict:
+    """Keyword arguments of a write of the collection adapter with the token: the creation takes the timeout too.
+
+    :param method: the method
+    :param token: the token of the call
+    :returns: the keyword arguments
+    """
+    if method == "create":
+        return {"timeout": Sentinel, "token": token}
+    return {"background": False, "_empty_trash": True, "token": token}
+
+
+def test_clear_504_is_a_timeout_error_with_the_text_of_the_server(
+    collection_adapter: ServerCollectionAdapter, collection: Collection, httpx_mock: HTTPXMock
+):
+    message = "The timeout of the operation is over"
+    httpx_mock.add_response(method="PUT", status_code=504, json={"code": 504, "message": message})
+    with pytest.raises(
+        DekerTimeoutError, match=f"^Couldn't clear the collection {collection.name}: {re.escape(message)}$"
+    ):
+        collection_adapter.clear(collection, **operation_kwargs("clear"))
 
 
 def collection_requests(httpx_mock: HTTPXMock) -> list[httpx.Request]:
@@ -181,14 +204,40 @@ def collection_requests(httpx_mock: HTTPXMock) -> list[httpx.Request]:
     return [request for request in httpx_mock.get_requests() if "/collection" in request.url.path]
 
 
-@pytest.mark.parametrize(("method", "status"), TIMED_CALLS)
+@pytest.mark.parametrize(("method", "http_method", "suffix"), [("delete", "DELETE", ""), ("clear", "PUT", "/arrays")])
+@pytest.mark.parametrize("background", [False, True])
+@pytest.mark.parametrize("empty_trash", [False, True])
+def test_delete_and_clear_send_the_background_and_no_timeout(
+    method: str,
+    http_method: str,
+    suffix: str,
+    background: bool,
+    empty_trash: bool,
+    collection_adapter: ServerCollectionAdapter,
+    collection: Collection,
+    httpx_mock: HTTPXMock,
+):
+    """The server empties its trash by the background of the request, once: the service flag stays with the client."""
+    httpx_mock.add_response(url=re.compile(r".*/v1/collection.*"))
+    assert (
+        getattr(collection_adapter, method)(
+            collection, background=background, _empty_trash=empty_trash, token=DefaultToken()
+        )
+        is None
+    )
+    (sent,) = collection_requests(httpx_mock)
+    assert sent.method == http_method
+    assert sent.url.path == f"/v1/collection/{collection.name}{suffix}"
+    assert dict(sent.url.params) == {"background": str(background).lower()}
+    assert sent.extensions["timeout"] == collection_adapter.client.timeout.as_dict()  # the default of the client
+    assert [request for request in httpx_mock.get_requests() if "/trash" in request.url.path] == []
+
+
 @pytest.mark.parametrize(
     ("timeout", "parameter", "seconds"),
     [pytest.param(30, "30", 35, id="given"), pytest.param(Sentinel, None, 6, id="not-given")],
 )
-def test_the_timeout_of_the_call_goes_to_the_server(
-    method: str,
-    status: int,
+def test_the_timeout_of_the_creation_goes_to_the_server(
     timeout: int | SentinelType,
     parameter: str | None,
     seconds: int,
@@ -197,16 +246,16 @@ def test_the_timeout_of_the_call_goes_to_the_server(
     httpx_mock: HTTPXMock,
 ):
     """A given timeout is the query parameter; the client waits for it, or ``write_lock_timeout`` (1 s), 5 s more."""
-    httpx_mock.add_response(url=re.compile(r".*/v1/collection.*"), status_code=status)
+    httpx_mock.add_response(url=re.compile(r".*/v1/collection.*"), status_code=201)
 
-    getattr(collection_adapter, method)(collection, timeout=timeout, token=DefaultToken())
+    collection_adapter.create(collection, timeout=timeout, token=DefaultToken())
 
     [sent] = collection_requests(httpx_mock)
     assert sent.url.params.get("timeout") == parameter
     assert sent.extensions["timeout"] == httpx.Timeout(seconds).as_dict()
 
 
-@pytest.mark.parametrize(("method", "status"), TIMED_CALLS)
+@pytest.mark.parametrize(("method", "status"), WRITE_CALLS)
 @pytest.mark.parametrize(("kind", "error"), FIRED_TOKENS)
 def test_a_fired_token_sends_nothing(
     method: str,
@@ -218,13 +267,13 @@ def test_a_fired_token_sends_nothing(
     httpx_mock: HTTPXMock,
 ):
     with pytest.raises(error) as info:
-        getattr(collection_adapter, method)(collection, timeout=Sentinel, token=fired_token(kind))
+        getattr(collection_adapter, method)(collection, **write_kwargs(method, fired_token(kind)))
 
     assert type(info.value) is error
     assert collection_requests(httpx_mock) == []
 
 
-@pytest.mark.parametrize(("method", "status"), TIMED_CALLS)
+@pytest.mark.parametrize(("method", "status"), WRITE_CALLS)
 @pytest.mark.parametrize(
     ("cancelled_during", "sent"),
     [
@@ -247,12 +296,12 @@ def test_a_write_cancelled_from_outside(
         token = write_token()
     if cancelled_during:
         httpx_mock.add_callback(partial(cancel_and_answer, scope, status, b""), url=re.compile(r".*/v1/collection.*"))
-        getattr(collection_adapter, method)(collection, timeout=Sentinel, token=token)
+        getattr(collection_adapter, method)(collection, **write_kwargs(method, token))
         assert not token.cancelled
     else:
         scope.cancel()
         with pytest.raises(TokenCancelledError):
-            getattr(collection_adapter, method)(collection, timeout=Sentinel, token=token)
+            getattr(collection_adapter, method)(collection, **write_kwargs(method, token))
 
     assert scope.cancelled
     assert len(collection_requests(httpx_mock)) == sent

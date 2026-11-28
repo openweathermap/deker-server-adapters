@@ -87,7 +87,7 @@ def test_collection_delete_success(
     collection: Collection,
 ):
     httpx_mock.add_response()
-    assert collection_adapter.delete(collection=collection, timeout=Sentinel, token=DefaultToken()) is None
+    assert collection_adapter.delete(collection=collection, **operation_kwargs("delete")) is None
 
 
 def test_collection_delete_raises_not_found(
@@ -97,7 +97,7 @@ def test_collection_delete_raises_not_found(
 ):
     httpx_mock.add_response(status_code=404)
     with pytest.raises(DekerCollectionNotExistsError):
-        collection_adapter.delete(collection=collection, timeout=Sentinel, token=DefaultToken())
+        collection_adapter.delete(collection=collection, **operation_kwargs("delete"))
 
 
 def test_collection_read_success(
@@ -125,7 +125,7 @@ def test_collection_clear_success(
     collection: Collection,
 ):
     httpx_mock.add_response()
-    assert collection_adapter.clear(collection, timeout=Sentinel, token=DefaultToken()) is None
+    assert collection_adapter.clear(collection, **operation_kwargs("clear")) is None
 
 
 def test_collection_clear_raises_not_found(
@@ -135,4 +135,4 @@ def test_collection_clear_raises_not_found(
 ):
     httpx_mock.add_response(status_code=404)
     with pytest.raises(DekerCollectionNotExistsError):
-        collection_adapter.clear(collection, timeout=Sentinel, token=DefaultToken())
+        collection_adapter.clear(collection, **operation_kwargs("clear"))

@@ -34,12 +34,14 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         return f"{get_api_version()}/collections"
 
     @check_ctx_state
-    def delete(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
-        """Delete collection from server.
+    def delete(self, collection: "Collection", *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
+        """Delete collection from server: one request, the server deletes it and empties its trash.
 
         :param collection: Deker's collection instance
-        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
-          the server
+        :param background: sent to the server: it answers right after the deletion and empties its trash in the
+          background
+        :param _empty_trash: taken for the common signature of the adapters and not used here: the server empties its
+          trash after each deletion it makes, by ``background``
         :param token: token of the write operation
         :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerCollectionNotExistsError: if the server answered 404
@@ -47,9 +49,10 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         :raises DekerServerError: if the server answered anything else but 200
         """
         check(token)
-        request_kwargs = timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout)
         mark_started(token)
-        response = self.client.delete(f"/{self.collection_url_prefix}/{collection.name}", **request_kwargs)
+        response = self.client.delete(
+            f"/{self.collection_url_prefix}/{collection.name}", params={"background": str(background).lower()}
+        )
 
         if response.status_code == STATUS_OK:
             return
@@ -109,23 +112,28 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         raise_for_status(response, f"Couldn't get the collection {name=}")
 
     @check_ctx_state
-    def clear(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
-        """Remove every array of the collection on the server.
+    def clear(self, collection: "Collection", *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
+        """Remove every array of the collection on the server: one request, the server clears it and empties its trash.
 
         :param collection: Instance of Deker's collection
-        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
-          the server
+        :param background: sent to the server: it answers right after the clearing and empties its trash in the
+          background
+        :param _empty_trash: taken for the common signature of the adapters and not used here: the server empties its
+          trash after each clearing it makes, by ``background``
         :param token: token of the write operation
         :raises TokenCancelledError: if the token is cancelled before the request is sent
         :raises DekerCollectionNotExistsError: if the server answered 404
+        :raises DekerClusterError: if the server answered 503: it cannot take the request now
+        :raises DekerTimeoutError: if the server answered 504
         :raises DekerServerError: if the server answered anything else but 200
         """
         check(token)
         array_type = "varrays" if collection.varray_schema else "arrays"
-        request_kwargs = timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout)
         mark_started(token)
         response = self.client.put(
-            f"/{self.collection_url_prefix}/{collection.name}/{array_type}", json=[], **request_kwargs
+            f"/{self.collection_url_prefix}/{collection.name}/{array_type}",
+            json=[],
+            params={"background": str(background).lower()},
         )
 
         if response.status_code == NOT_FOUND:
@@ -134,10 +142,7 @@ class ServerCollectionAdapter(BaseServerAdapterMixin, BaseCollectionAdapter[Uri]
         if response.status_code == STATUS_OK:
             return
 
-        raise DekerServerError(
-            response,
-            f"Couldn't clear the collection {collection.name}",
-        )
+        raise_for_status(response, f"Couldn't clear the collection {collection.name}")
 
     @check_ctx_state
     def empty_trash(self, *, background: bool) -> None:

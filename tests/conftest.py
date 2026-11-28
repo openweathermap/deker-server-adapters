@@ -38,9 +38,13 @@ UNTIMED_METHODS = frozenset({"read_meta", "read", "is_deleted"})
 
 
 def operation_kwargs(method: str) -> dict:
-    """Keyword arguments of an adapter method called outside any operation: no timeout, a token never cancelled."""
+    """Keyword arguments of a collection adapter method called outside any operation: no timeout, a token never
+    cancelled; the deletion and the clearing take no timeout and empty the trash before they return.
+    """
     if method in UNTIMED_METHODS:
         return {}
+    if method in ("delete", "clear"):
+        return {"background": False, "_empty_trash": True, "token": DefaultToken()}
     return {"timeout": Sentinel, "token": DefaultToken()}
 
 
