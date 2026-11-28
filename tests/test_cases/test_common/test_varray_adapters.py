@@ -30,7 +30,14 @@ from deker_tools.slices import slices_to_str
 from deker_tools.typings import Sentinel, SentinelType
 from pytest_httpx import HTTPXMock
 
-from tests.conftest import CLUSTER_MODE, FIRED_TOKENS, cancel_and_answer, fired_token, operation_kwargs
+from tests.conftest import (
+    CLUSTER_MODE,
+    FIRED_TOKENS,
+    array_operation_kwargs,
+    cancel_and_answer,
+    fired_token,
+    write_kwargs,
+)
 from tests.params.slices import invalid_index_params, valid_index_params
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -152,7 +159,7 @@ def test_collection_raises_500(
     """Test creation of collection."""
     httpx_mock.add_response(status_code=500)
     with pytest.raises(DekerServerError):
-        getattr(server_varray_adapter, method)(varray, *args, **operation_kwargs(method))
+        getattr(server_varray_adapter, method)(varray, *args, **array_operation_kwargs(method))
 
 
 def test_read_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
@@ -167,9 +174,35 @@ def test_update_meta_success(varray: VArray, httpx_mock: HTTPXMock, server_varra
     )
 
 
-def test_delete_success(varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter):
+@pytest.mark.parametrize("background", [False, True])
+@pytest.mark.parametrize("empty_trash", [False, True])
+def test_delete_sends_the_background_and_no_timeout(
+    varray: VArray,
+    httpx_mock: HTTPXMock,
+    server_varray_adapter: ServerVarrayAdapter,
+    background: bool,
+    empty_trash: bool,
+):
+    """One request deletes the whole VArray on the server, which empties its trash by the background of the request."""
     httpx_mock.add_response(url=re.compile(r".*varray.*"))
-    assert server_varray_adapter.delete(varray, timeout=Sentinel, token=DefaultToken()) is None
+    assert (
+        server_varray_adapter.delete(varray, background=background, _empty_trash=empty_trash, token=DefaultToken())
+        is None
+    )
+    (sent,) = (r for r in httpx_mock.get_requests() if r.method == "DELETE")
+    assert sent.url.path.endswith(f"/varray/by-id/{varray.id}")
+    assert dict(sent.url.params) == {"background": str(background).lower()}
+    assert sent.extensions["timeout"] == server_varray_adapter.client.timeout.as_dict()  # the default of the client
+
+
+def test_delete_main_file_sends_nothing(
+    varray: VArray, httpx_mock: HTTPXMock, server_varray_adapter: ServerVarrayAdapter
+):
+    """The request of ``delete`` has deleted the json file of the VArray on the server already."""
+    sent = len(httpx_mock.get_requests())
+    for background, empty_trash in ((False, True), (True, False)):
+        assert server_varray_adapter.delete_main_file(varray, background=background, _empty_trash=empty_trash) is None
+    assert httpx_mock.get_requests()[sent:] == []
 
 
 def test_read_data_success(
@@ -352,7 +385,7 @@ def test_held_array_raises_the_lock_error_of_deker(
     message = "Array 0f8e is locked for update operation, cannot be read."
     httpx_mock.add_response(status_code=423, json={"code": 423, "message": message}, url=re.compile(r".*varray.*"))
     with pytest.raises(DekerLockError, match=re.escape(message)):
-        getattr(server_varray_adapter, method)(varray, *args, **operation_kwargs(method))
+        getattr(server_varray_adapter, method)(varray, *args, **array_operation_kwargs(method))
 
 
 def test_written_partly_raises_the_group_error_of_deker(
@@ -402,7 +435,7 @@ def test_unavailable_raises_the_cluster_error_with_the_delay(
     httpx_mock.add_response(status_code=503, json=body, headers=headers, url=re.compile(r".*varray.*"))
     with caplog.at_level(logging.ERROR, logger="deker_server_adapters.base"):
         with pytest.raises(DekerClusterError, match=re.escape(message)) as info:
-            getattr(server_varray_adapter, method)(varray, *args, **operation_kwargs(method))
+            getattr(server_varray_adapter, method)(varray, *args, **array_operation_kwargs(method))
     assert info.value.retry_after == retry_after
     # a read of the metadata falls over to the other nodes, as before; no node is asked twice
     nodes_asked = [str(r.url.netloc) for r in httpx_mock.get_requests() if "varray" in str(r.url)]
@@ -436,7 +469,9 @@ def varray_requests(httpx_mock: HTTPXMock) -> list[httpx.Request]:
     return [r for r in httpx_mock.get_requests() if "/varray" in r.url.path and not r.url.path.endswith("/status")]
 
 
-@pytest.mark.parametrize(("method", "args", "status", "body", "setting"), TIMED_CALLS)
+@pytest.mark.parametrize(
+    ("method", "args", "status", "body", "setting"), [param for param in TIMED_CALLS if param.id != "delete"]
+)
 @pytest.mark.parametrize(
     ("timeout", "parameter"),
     [pytest.param(30, "30", id="given"), pytest.param(Sentinel, None, id="not-given")],
@@ -460,7 +495,7 @@ def test_the_timeout_of_the_call_goes_to_the_server(
     expect_status_check(method, mode, request)
     httpx_mock.add_response(url=re.compile(r".*/varray.*"), status_code=status, content=body)
 
-    getattr(server_varray_adapter, method)(varray, *args, timeout=timeout, token=DefaultToken())
+    getattr(server_varray_adapter, method)(varray, *args, **write_kwargs(method, timeout=timeout, token=DefaultToken()))
 
     [sent] = varray_requests(httpx_mock)
     assert sent.url.params.get("timeout") == parameter
@@ -485,7 +520,9 @@ def test_a_fired_token_sends_nothing(
     sent = len(httpx_mock.get_requests())
 
     with pytest.raises(error) as info:
-        getattr(server_varray_adapter, method)(varray, *args, timeout=Sentinel, token=fired_token(kind))
+        getattr(server_varray_adapter, method)(
+            varray, *args, **write_kwargs(method, timeout=Sentinel, token=fired_token(kind))
+        )
 
     assert type(info.value) is error
     assert httpx_mock.get_requests()[sent:] == []
@@ -511,7 +548,7 @@ def test_a_write_cancelled_once_sent_goes_to_its_end(
     with cancellation_scope(scope):
         token = write_token()
 
-    getattr(server_varray_adapter, method)(varray, *args, timeout=Sentinel, token=token)
+    getattr(server_varray_adapter, method)(varray, *args, **write_kwargs(method, timeout=Sentinel, token=token))
 
     assert scope.cancelled
     assert not token.cancelled
@@ -535,7 +572,7 @@ def test_a_write_cancelled_before_it_is_sent_sends_nothing(
     scope.cancel()
 
     with pytest.raises(TokenCancelledError):
-        getattr(server_varray_adapter, method)(varray, *args, timeout=Sentinel, token=token)
+        getattr(server_varray_adapter, method)(varray, *args, **write_kwargs(method, timeout=Sentinel, token=token))
 
     assert varray_requests(httpx_mock) == []
 
@@ -559,7 +596,7 @@ def test_a_gateway_timeout_is_the_timeout_error_of_deker(
     httpx_mock.add_response(url=re.compile(r".*/varray.*"), status_code=504, json={"code": 504, "message": message})
 
     with pytest.raises(DekerTimeoutError, match=message):
-        getattr(server_varray_adapter, method)(varray, *args, timeout=30, token=DefaultToken())
+        getattr(server_varray_adapter, method)(varray, *args, **write_kwargs(method, timeout=30, token=DefaultToken()))
 
 
 @pytest.fixture

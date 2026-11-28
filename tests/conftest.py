@@ -19,7 +19,7 @@ from deker.ctx import CTX
 from deker.uri import Uri
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
 from deker_tools.cancel import TokenCancelledError, TokenTimeoutError
-from deker_tools.typings import Sentinel
+from deker_tools.typings import Sentinel, SentinelType
 from pytest_httpx import HTTPXMock
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
@@ -42,6 +42,30 @@ def operation_kwargs(method: str) -> dict:
     if method in UNTIMED_METHODS:
         return {}
     return {"timeout": Sentinel, "token": DefaultToken()}
+
+
+def write_kwargs(method: str, *, timeout: int | SentinelType, token: AbstractToken) -> dict:
+    """Keyword arguments of a method of an Array or a VArray adapter: its deletion takes no timeout.
+
+    :param method: the method
+    :param timeout: the timeout of the call, for every method but the deletion
+    :param token: the token of the call
+    :returns: the keyword arguments; the deletion empties the trash before it returns
+    """
+    if method == "delete":
+        return {"background": False, "_empty_trash": True, "token": token}
+    return {"timeout": timeout, "token": token}
+
+
+def array_operation_kwargs(method: str) -> dict:
+    """Keyword arguments of a method of an Array or a VArray adapter called outside any operation.
+
+    :param method: the method
+    :returns: no timeout, a token never cancelled; nothing for a method that takes neither
+    """
+    if method in UNTIMED_METHODS:
+        return {}
+    return write_kwargs(method, timeout=Sentinel, token=DefaultToken())
 
 
 # the kinds of the tokens fired before a call and the errors of deker-tools they raise

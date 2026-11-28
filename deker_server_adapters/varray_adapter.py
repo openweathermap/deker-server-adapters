@@ -37,3 +37,11 @@ class ServerVarrayAdapter(ServerArrayAdapterMixin[VArray], BaseVArrayAdapter[Uri
             storage_adapter,
         )
         self.executor = executor
+
+    def delete_main_file(self, array: VArray, *, background: bool, _empty_trash: bool) -> None:
+        """Do nothing: the request of ``delete`` has deleted the whole VArray on the server, its json file too.
+
+        :param array: not used: see above
+        :param background: not used: see above
+        :param _empty_trash: not used: see above
+        """

@@ -15,7 +15,7 @@ from deker_tools.hash_ring import get_hash_key
 from deker_tools.typings import Sentinel
 from pytest_httpx import HTTPXMock
 
-from tests.conftest import operation_kwargs
+from tests.conftest import array_operation_kwargs
 
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.consts import LAST_MODIFIED_HEADER, NON_LEADER_WRITE
@@ -162,7 +162,7 @@ def test_varray_write_after_a_leader_change_goes_to_the_new_leader(
         url=re.compile(r"http://newhost\.owm\.io/.*"),
     )
 
-    getattr(server_varray_adapter, write)(varray, *extra_args, **operation_kwargs(write))
+    getattr(server_varray_adapter, write)(varray, *extra_args, **array_operation_kwargs(write))
 
     assert [request.url.host for request in httpx_mock.get_requests(method=method)] == ["localhost", "newhost.owm.io"]
     assert server_varray_adapter.ctx.extra["cluster_config"].leader.id == NEW_LEADER["id"]

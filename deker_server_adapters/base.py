@@ -375,20 +375,22 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
         if response is None or response.status_code != STATUS_OK:
             raise_for_status(response, "Couldn't update attributes")
 
-    def delete(self, array: ArrayT, *, timeout: int | SentinelType, token: AbstractToken) -> None:
-        """Delete array on server.
+    def delete(self, array: ArrayT, *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
+        """Delete array on server: one request, the server deletes the whole Array or VArray and empties its trash.
 
         :param array: Array/Varray to be deleted
-        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
-          the server
+        :param background: sent to the server: it answers right after the deletion and empties its trash in the
+          background
+        :param _empty_trash: taken for the common signature of the adapters and not used here: the server empties its
+          trash after each deletion it makes, by ``background``
         :param token: token of the write operation
         :raises TokenCancelledError: if the token is cancelled before the request is sent
-        :raises DekerLockError: if the array is held by another process
+        :raises DekerLockError: if the server answered 423
         :raises DekerServerError: if the server answered anything but 200
         """
         check(token)
         url = f"{self.path_stripped}/{self.type.name}/by-id/{array.id}"
-        request_kwargs = timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout)
+        request_kwargs: dict[str, Any] = {"params": {"background": str(background).lower()}}
 
         mark_started(token)
         if self.client.cluster_mode and self.type == ArrayType.array:
@@ -406,6 +408,12 @@ class ServerArrayAdapterMixin(BaseServerAdapterMixin, IArrayAdapter[Uri, ArrayT]
 
         if response is None or response.status_code != STATUS_OK:
             raise_for_status(response, f"Couldn't delete the {self.type.name}")
+
+    def empty_trash(self, *, background: bool) -> None:
+        """Do nothing: the server empties its trash after each deletion it makes, by the background of the request.
+
+        :param background: not used: see above
+        """
 
     @staticmethod
     def _fill_from_response(result: ndarray, response: Response) -> None:

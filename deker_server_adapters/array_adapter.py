@@ -1,7 +1,6 @@
 import builtins
 
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from typing import TYPE_CHECKING
 
 from cantok import AbstractToken
@@ -10,9 +9,8 @@ from deker.arrays import Array
 from deker.ctx import CTX
 from deker.uri import Uri
 from deker_tools.cancel import check, mark_started
-from deker_tools.typings import SentinelType
 
-from deker_server_adapters.base import ServerArrayAdapterMixin, timeout_kwargs
+from deker_server_adapters.base import ServerArrayAdapterMixin
 from deker_server_adapters.consts import STATUS_OK, ArrayType
 from deker_server_adapters.errors import DekerServerError
 from deker_server_adapters.httpx_client import HttpxClient
@@ -53,37 +51,29 @@ class ServerArrayAdapter(ServerArrayAdapterMixin[Array], BaseArrayAdapter[Uri]):
         )
         self.executor = executor
 
-    def _delete_by_id(self, id_: str, *, timeout: int | SentinelType) -> bool:
+    def _delete_by_id(self, id_: str) -> bool:
         """Try to delete an Array by its id.
 
         :param id_: Id of array.
-        :param timeout: seconds to wait for the lock of the file, sent to the server; ``Sentinel`` - the default of
-          the server
         :returns: ``True`` if the array was deleted, ``False`` if the server reported a failure
         """
         try:
-            response = self.client.delete(
-                f"{self.collection_path.raw_url}/array/by-id/{id_}",
-                **timeout_kwargs(timeout=timeout, default=self.ctx.config.write_lock_timeout),
-            )
+            response = self.client.delete(f"{self.collection_path.raw_url}/array/by-id/{id_}")
             if response.status_code != STATUS_OK:
                 raise DekerServerError(response, "Couldn't delete the array")
         except Exception:
             return False
         return True
 
-    def delete_all_by_vid(
-        self, vid: str, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken
-    ) -> None:
+    def delete_all_by_vid(self, vid: str, collection: "Collection", *, token: AbstractToken) -> None:
         """Delete all the Arrays of a VArray, one request per Array in the executor.
 
         The start flag of the token is closed before the first deletion is sent: from then on every Array is
         deleted, whatever happens to the token.
 
         :param vid: Id of virtual array
-        :param collection: Instance of deker's collection
-        :param timeout: seconds to wait for the lock of each file, sent to the server; ``Sentinel`` - the default of
-          the server
+        :param collection: taken for the common signature of the adapters and not used here: the Arrays are found in
+          the list of the Arrays of the collection of the adapter
         :param token: token of the write operation
         :raises TokenCancelledError: if the token is cancelled before the first deletion is sent
         :raises DekerServerError: if the list of the arrays could not be fetched or some Arrays were not deleted
@@ -95,7 +85,7 @@ class ServerArrayAdapter(ServerArrayAdapterMixin[Array], BaseArrayAdapter[Uri]):
                 array["id"] for array in all_arrays_response.json() if array["primary_attributes"].get("vid") == vid
             ]
             mark_started(token)
-            results = self.executor.map(partial(self._delete_by_id, timeout=timeout), arrays_with_vid)
+            results = self.executor.map(self._delete_by_id, arrays_with_vid)
             errors = []
             for i, result in enumerate(results):
                 if not result:

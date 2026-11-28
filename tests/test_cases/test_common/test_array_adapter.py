@@ -24,7 +24,14 @@ from deker_tools.typings import Sentinel, SentinelType
 from httpx import ReadTimeout
 from pytest_httpx import HTTPXMock
 
-from tests.conftest import CLUSTER_MODE, FIRED_TOKENS, cancel_and_answer, fired_token, operation_kwargs
+from tests.conftest import (
+    CLUSTER_MODE,
+    FIRED_TOKENS,
+    array_operation_kwargs,
+    cancel_and_answer,
+    fired_token,
+    write_kwargs,
+)
 from tests.params.slices import invalid_index_params, valid_index_params
 
 from deker_server_adapters import base
@@ -100,7 +107,7 @@ def test_collection_raises_500(
 
     httpx_mock.add_response(status_code=500, url=re.compile(r".*array.*"))
     with pytest.raises(DekerServerError):
-        getattr(server_array_adapter, method)(array, *args, **operation_kwargs(method))
+        getattr(server_array_adapter, method)(array, *args, **array_operation_kwargs(method))
 
 
 def test_update_meta_success(
@@ -110,11 +117,34 @@ def test_update_meta_success(
     assert server_array_adapter.update_meta_custom_attributes(array, {}, timeout=Sentinel, token=DefaultToken()) is None
 
 
-def test_delete_success(
-    array: Array, httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, mock_status: None
+@pytest.mark.parametrize("background", [False, True])
+@pytest.mark.parametrize("empty_trash", [False, True])
+def test_delete_sends_the_background_and_no_timeout(
+    array: Array,
+    httpx_mock: HTTPXMock,
+    server_array_adapter: ServerArrayAdapter,
+    mock_status: None,
+    background: bool,
+    empty_trash: bool,
 ):
+    """The server empties its trash by the background of the request; the service flag stays with the client."""
     httpx_mock.add_response(url=re.compile(r".*array.*"))
-    assert server_array_adapter.delete(array, timeout=Sentinel, token=DefaultToken()) is None
+    assert (
+        server_array_adapter.delete(array, background=background, _empty_trash=empty_trash, token=DefaultToken())
+        is None
+    )
+    (sent,) = (r for r in httpx_mock.get_requests() if r.method == "DELETE")
+    assert sent.url.path.endswith(f"/array/by-id/{array.id}")
+    assert dict(sent.url.params) == {"background": str(background).lower()}
+    assert sent.extensions["timeout"] == server_array_adapter.client.timeout.as_dict()  # the default of the client
+
+
+def test_empty_trash_of_the_arrays_sends_nothing(server_array_adapter: ServerArrayAdapter, httpx_mock: HTTPXMock):
+    """The server empties its trash after each deletion it makes: nothing is left for the client."""
+    sent = len(httpx_mock.get_requests())
+    for background in (False, True):
+        assert server_array_adapter.empty_trash(background=background) is None
+    assert httpx_mock.get_requests()[sent:] == []
 
 
 def test_read_data_success(
@@ -289,7 +319,7 @@ def test_delete_all_by_vid(
     collection: Collection,
 ):
     httpx_mock.add_response(json=[{"id": 2, "primary_attributes": {"vid": 1}}])
-    assert server_array_adapter.delete_all_by_vid("1", collection, timeout=Sentinel, token=DefaultToken()) is None
+    assert server_array_adapter.delete_all_by_vid("1", collection, token=DefaultToken()) is None
 
 
 def test_delete_all_by_raises(
@@ -300,7 +330,7 @@ def test_delete_all_by_raises(
 ):
     httpx_mock.add_response(status_code=500, url=re.compile(r".*array.*"))
     with pytest.raises(DekerServerError):
-        server_array_adapter.delete_all_by_vid("1", collection, timeout=Sentinel, token=DefaultToken())
+        server_array_adapter.delete_all_by_vid("1", collection, token=DefaultToken())
 
 
 def test_by_primary(
@@ -620,7 +650,7 @@ def test_delete_all_by_vid_reports_arrays_that_failed_to_delete(
     httpx_mock.add_response(method="DELETE", url=re.compile(r".*/by-id/tile-1$"), status_code=200)
     httpx_mock.add_response(method="DELETE", url=re.compile(r".*/by-id/tile-2$"), status_code=500)
     with pytest.raises(DekerServerError, match=r"Failed arrays: \['tile-2'\]"):
-        server_array_adapter.delete_all_by_vid("v", collection, timeout=Sentinel, token=DefaultToken())
+        server_array_adapter.delete_all_by_vid("v", collection, token=DefaultToken())
 
 
 def test_delete_all_by_vid_fails_when_arrays_cannot_be_listed(
@@ -628,7 +658,7 @@ def test_delete_all_by_vid_fails_when_arrays_cannot_be_listed(
 ):
     httpx_mock.add_response(method="GET", url=re.compile(r".*/arrays/$"), status_code=500)
     with pytest.raises(DekerServerError, match="list of the arrays"):
-        server_array_adapter.delete_all_by_vid("v", collection, timeout=Sentinel, token=DefaultToken())
+        server_array_adapter.delete_all_by_vid("v", collection, token=DefaultToken())
 
 
 @pytest.mark.parametrize("index_exp", valid_index_params)
@@ -738,7 +768,7 @@ def test_held_array_raises_the_lock_error_of_deker(
     message = "Array 0f8e is locked for update operation, cannot be read."
     httpx_mock.add_response(status_code=423, json={"code": 423, "message": message}, url=re.compile(r".*array.*"))
     with pytest.raises(DekerLockError, match=re.escape(message)):
-        getattr(server_array_adapter, method)(array, *args, **operation_kwargs(method))
+        getattr(server_array_adapter, method)(array, *args, **array_operation_kwargs(method))
 
 
 # The operations of the Array adapter: the method, its arguments after the Array, the status and the body of the
@@ -767,7 +797,9 @@ def array_requests(httpx_mock: HTTPXMock) -> list[httpx.Request]:
     return [r for r in httpx_mock.get_requests() if "/array" in r.url.path and not r.url.path.endswith("/status")]
 
 
-@pytest.mark.parametrize(("method", "args", "status", "body", "setting"), TIMED_CALLS)
+@pytest.mark.parametrize(
+    ("method", "args", "status", "body", "setting"), [param for param in TIMED_CALLS if param.id != "delete"]
+)
 @pytest.mark.parametrize(
     ("timeout", "parameter"),
     [pytest.param(30, "30", id="given"), pytest.param(Sentinel, None, id="not-given")],
@@ -791,7 +823,7 @@ def test_the_timeout_of_the_call_goes_to_the_server(
     expect_status_check(method, mode, request)
     httpx_mock.add_response(url=re.compile(r".*/array.*"), status_code=status, content=body)
 
-    getattr(server_array_adapter, method)(array, *args, timeout=timeout, token=DefaultToken())
+    getattr(server_array_adapter, method)(array, *args, **write_kwargs(method, timeout=timeout, token=DefaultToken()))
 
     [sent] = array_requests(httpx_mock)
     assert sent.url.params.get("timeout") == parameter
@@ -816,7 +848,9 @@ def test_a_fired_token_sends_nothing(
     sent = len(httpx_mock.get_requests())
 
     with pytest.raises(error) as info:
-        getattr(server_array_adapter, method)(array, *args, timeout=Sentinel, token=fired_token(kind))
+        getattr(server_array_adapter, method)(
+            array, *args, **write_kwargs(method, timeout=Sentinel, token=fired_token(kind))
+        )
 
     assert type(info.value) is error
     assert httpx_mock.get_requests()[sent:] == []
@@ -842,7 +876,7 @@ def test_a_write_cancelled_once_sent_goes_to_its_end(
     with cancellation_scope(scope):
         token = write_token()
 
-    getattr(server_array_adapter, method)(array, *args, timeout=Sentinel, token=token)
+    getattr(server_array_adapter, method)(array, *args, **write_kwargs(method, timeout=Sentinel, token=token))
 
     assert scope.cancelled
     assert not token.cancelled
@@ -866,7 +900,7 @@ def test_a_write_cancelled_before_it_is_sent_sends_nothing(
     scope.cancel()
 
     with pytest.raises(TokenCancelledError):
-        getattr(server_array_adapter, method)(array, *args, timeout=Sentinel, token=token)
+        getattr(server_array_adapter, method)(array, *args, **write_kwargs(method, timeout=Sentinel, token=token))
 
     assert array_requests(httpx_mock) == []
 
@@ -890,7 +924,7 @@ def test_a_gateway_timeout_is_the_timeout_error_of_deker(
     httpx_mock.add_response(url=re.compile(r".*/array.*"), status_code=504, json={"code": 504, "message": message})
 
     with pytest.raises(DekerTimeoutError, match=message):
-        getattr(server_array_adapter, method)(array, *args, timeout=30, token=DefaultToken())
+        getattr(server_array_adapter, method)(array, *args, **write_kwargs(method, timeout=30, token=DefaultToken()))
 
 
 VID_ARRAYS = [
@@ -900,28 +934,21 @@ VID_ARRAYS = [
 ]
 
 
-@pytest.mark.parametrize(
-    ("timeout", "parameter", "seconds"),
-    [pytest.param(30, "30", 35, id="given"), pytest.param(Sentinel, None, 6, id="not-given")],
-)
-def test_delete_all_by_vid_sends_the_timeout_with_every_deletion(
-    timeout: int | SentinelType,
-    parameter: str | None,
-    seconds: int,
-    httpx_mock: HTTPXMock,
-    server_array_adapter: ServerArrayAdapter,
-    collection: Collection,
+def test_delete_all_by_vid_sends_no_timeout_with_the_deletions(
+    httpx_mock: HTTPXMock, server_array_adapter: ServerArrayAdapter, collection: Collection
 ):
-    """Every Array is deleted with the timeout of the call; not given - with ``write_lock_timeout`` (1 s) and 5 s."""
+    """Every Array of the VArray is deleted without a timeout: the deletion waits for nobody."""
     httpx_mock.add_response(method="GET", url=re.compile(r".*/arrays/$"), json=VID_ARRAYS)
     httpx_mock.add_response(method="DELETE", url=re.compile(r".*/by-id/.*"))
 
-    server_array_adapter.delete_all_by_vid("v", collection, timeout=timeout, token=DefaultToken())
+    server_array_adapter.delete_all_by_vid("v", collection, token=DefaultToken())
 
     deletions = httpx_mock.get_requests(method="DELETE")
     assert sorted(request.url.path.rsplit("/", 1)[-1] for request in deletions) == ["tile-1", "tile-2"]
-    assert [request.url.params.get("timeout") for request in deletions] == [parameter, parameter]
-    assert [request.extensions["timeout"] for request in deletions] == [httpx.Timeout(seconds).as_dict()] * 2
+    assert [dict(request.url.params) for request in deletions] == [{}, {}]
+    assert [request.extensions["timeout"] for request in deletions] == [
+        server_array_adapter.client.timeout.as_dict()
+    ] * 2
 
 
 @pytest.mark.parametrize(("kind", "error"), FIRED_TOKENS)
@@ -935,7 +962,7 @@ def test_delete_all_by_vid_with_a_fired_token_sends_nothing(
     sent = len(httpx_mock.get_requests())
 
     with pytest.raises(error):
-        server_array_adapter.delete_all_by_vid("v", collection, timeout=Sentinel, token=fired_token(kind))
+        server_array_adapter.delete_all_by_vid("v", collection, token=fired_token(kind))
 
     assert httpx_mock.get_requests()[sent:] == []
 
@@ -967,10 +994,10 @@ def test_delete_all_by_vid_cancelled_on_the_way(
         token = write_token()
 
     if deleted:
-        server_array_adapter.delete_all_by_vid("v", collection, timeout=Sentinel, token=token)
+        server_array_adapter.delete_all_by_vid("v", collection, token=token)
     else:
         with pytest.raises(TokenCancelledError):
-            server_array_adapter.delete_all_by_vid("v", collection, timeout=Sentinel, token=token)
+            server_array_adapter.delete_all_by_vid("v", collection, token=token)
 
     assert scope.cancelled
     paths = sorted(request.url.path.rsplit("/", 1)[-1] for request in httpx_mock.get_requests(method="DELETE"))

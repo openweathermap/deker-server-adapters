@@ -15,6 +15,8 @@ from deker_tools.hash_ring import get_hash_key
 from deker_tools.typings import Sentinel
 from pytest_httpx import HTTPXMock
 
+from tests.conftest import write_kwargs
+
 from deker_server_adapters.array_adapter import ServerArrayAdapter
 from deker_server_adapters.consts import LAST_MODIFIED_HEADER
 from deker_server_adapters.errors import DekerServerError, FilteringByIdInClusterIsForbidden
@@ -137,7 +139,9 @@ def test_a_node_that_does_not_answer_is_the_server_error_of_the_operation(
     httpx_mock.add_exception(httpx.ConnectError("refused"), url=re.compile(r".*/array.*"))
 
     with pytest.raises(DekerServerError) as info:
-        getattr(server_array_adapter, method)(array, *args, timeout=Sentinel, token=DefaultToken())
+        getattr(server_array_adapter, method)(
+            array, *args, **write_kwargs(method, timeout=Sentinel, token=DefaultToken())
+        )
 
     assert type(info.value) is DekerServerError
     assert str(info.value) == message
